@@ -1,0 +1,144 @@
+#pragma once
+
+// Stepper driver pins (STEP/DIR)
+#define X_STEP_PIN    12
+#define X_DIR_PIN     13
+#define Y_STEP_PIN    14
+#define Y_DIR_PIN     27
+
+// Enable pin (common for both drivers, active low)
+#define ENABLE_PIN    26
+
+// Endstop (one shared, normally open, NC to GND)
+#define ENDSTOP_PIN   34
+#define ENDSTOP_TRIGGERED (digitalRead(ENDSTOP_PIN) == LOW)
+
+// Solenoid pen lifter (PWM-driven via MOSFET)
+#define SOLENOID_PIN  32
+#define SOLENOID_PWM_CH   0
+#define SOLENOID_PWM_FREQ 5000
+#define SOLENOID_PWM_RES  8        // 8-bit, duty 0-255
+#define DEFAULT_PRESSURE  50        // percent
+#define SOLENOID_UP   LOW
+#define SOLENOID_DOWN HIGH
+
+// Potentiometer for cutter pressure (ADC input)
+#define POT_PIN          35
+#define POT_LOOKBACK     4         // EMA smoothing factor (higher = smoother)
+
+// Potentiometer for cutting speed (ADC input, maps to 1-5 speed bars)
+#define SPEED_PIN        5
+#define SPEED_LOOKBACK   4
+
+// Calibration radius: ±5% of ADC range for detent snapping
+#define CAL_RADIUS_ADC   (int)(4095 * 0.05f)  // ~205 counts per detent band
+
+// Native ESP32-S3 USB OTG host (for USB flash drive)
+// Set USB_ENABLE 0 to disable and use PSRAM-only mode (WiFi/serial uploads)
+// USB D+/D- are fixed on GPIO 20/19 (internal PHY, no configurable pins)
+#define USB_ENABLE       1
+
+// I2C IO expander (MCP23017) for extra GPIO if needed
+// Set I2C_IO_EXPANDER_ENABLE 1 if pin shortage arises
+#define I2C_IO_EXPANDER_ENABLE 0
+#define I2C_SDA_PIN      -1    // set to GPIO for SDA
+#define I2C_SCL_PIN      -1    // set to GPIO for SCL
+#define I2C_EXPANDER_ADDR 0x20 // MCP23017 default address
+
+// PSRAM — file buffer for incoming WiFi/serial content & USB drive cache
+// 8 MB on ESP32-S3, set aside a chunk for file operations
+#define PSRAM_FILE_BUF_SIZE   (4 * 1024 * 1024)  // 4 MB reserved for files
+
+// Motion parameters (mm)
+#define X_MAX_MM      304.8f    // 12" — full gantry width for Cricut Expression
+#define Y_MAX_MM      609.6f    // 24" — full travel for 12×24" mat
+#define STEP_PER_MM   80.0f       // depends on belt/pulley/pitch
+#define MAX_FEEDRATE  3000.0f     // mm/min
+#define ACCELERATION  800.0f      // mm/s^2
+#define JERK          8000.0f     // mm/s^3 — S-curve jerk rate
+#define DEFAULT_FEED  1000.0f     // mm/min
+#define HOMING_FEED   500.0f      // mm/min
+#define HOMING_BACKOFF 5.0f       // mm to back off after hitting endstop
+#define MOTION_TICK_HZ 1000       // motion task loop rate (Hz)
+#define STEP_PULSE_US  2          // step pulse width (microseconds)
+
+// WiFi
+#define WIFI_SSID       "PlotterAP"
+#define WIFI_PASS       "plotter123"
+#define WIFI_AP_MODE    1
+#define HTTP_PORT       80
+
+// Plotter Expression OLED (NHD-2.7-12864, SPI, monochrome)
+#define OLED_ENABLE      1
+#define OLED_CS         15
+#define OLED_DC          2
+#define OLED_RST         4
+#define OLED_MOSI       16
+#define OLED_SCK        17
+
+// Navigation buttons (optional, set to 255 to disable)
+// When KBD_ENABLE=1 the button pins are repurposed for the Plotter keyboard rows.
+#define BTN_UP_PIN      33
+#define BTN_DOWN_PIN    25
+#define BTN_SELECT_PIN  22
+#define BTN_BACK_PIN    21
+#define BTN_DEBOUNCE_MS 50
+
+// --- Plotter Expression Keyboard ---
+// 14-pin ribbon cable → shift-register matrix (24 cols × 5 rows).
+// KBD_ROW4 (GPIO 4) shares OLED_RST — it is saved/restored after each scan.
+// Set KBD_ENABLE 0 to disable and recover the button pins.
+#define KBD_ENABLE       1
+#define KBD_CLK         33    // shift register clock
+#define KBD_DATA        25    // shift register data
+#define KBD_LED_EN      -1    // -1 = not connected (LEDs stay off)
+#define KBD_STOP        -1    // -1 = stop button not used
+#define KBD_ROW0        36    // ADC1 input-only, row 0 (top)
+#define KBD_ROW1        39    // ADC1 input-only, row 1
+#define KBD_ROW2        22    // shares BTN_SELECT
+#define KBD_ROW3        21    // shares BTN_BACK
+#define KBD_ROW4         4    // shares OLED_RST (restored after scan)
+#define KBD_DEBOUNCE_MS 30
+#define KBD_MAX_COLS    24
+#define KBD_MAX_ROWS     5
+
+// --- Magnification (SVG zoom) ---
+// Quadrature rotary encoder for adjusting zoom factor.
+#define ENC_A_PIN        18    // encoder channel A
+#define ENC_B_PIN        23    // encoder channel B
+#define ZOOM_STEP        0.1f  // zoom change per encoder detent
+#define ZOOM_MIN         0.1f  // minimum zoom (10 %)
+#define ZOOM_MAX         4.0f  // maximum zoom (400 %)
+#define MAG_DEFAULT      1.0f  // default zoom on startup
+
+// HPGL parser (HP Graphics Language, used by Inkscape)
+#define HPGL_UNITS_PER_MM   40.0f   // standard: 1016 units/inch = 40 units/mm
+// Pressure percentage per pen number (SP 1…N). Index 0 = pen 1.
+#define HPGL_PEN_PRESSURE   { 20, 30, 40, 50, 60, 70, 85, 100 }
+#define HPGL_DEFAULT_FEED   1000.0f // mm/min
+
+// SVG parsing limits
+#define SVG_PATH_MAX    2048
+#define SVG_POINTS_MAX  4096
+#define SVG_CURVE_STEPS 16
+#define SVG_MAX_FILE_SIZE (2 * 1024 * 1024)  // 2 MB max SVG file size
+
+// Buffer
+#define GCODE_LINE_MAX  128
+#define PLANNER_BUFFER  16
+
+// --- Plotter Expression UI Emulation ---
+// Buzzer / sound
+#define BUZZER_PIN      -1    // set to GPIO pin for piezo buzzer, -1 to disable
+#define BUZZER_PWM_CH   1
+#define BUZZER_PWM_FREQ 2000
+#define BUZZER_PWM_RES  8
+
+// Size dial emulation (magnification pot repurposed in Plotter mode)
+#define SIZE_MIN_INCHES   0.25f
+#define SIZE_MAX_INCHES   11.5f
+#define SIZE_DEFAULT_INCHES 1.0f
+
+// Default mat dimensions (mm) — used when no mat size setting available
+#define MAT_W_MM         304.8f   // 12 inches
+#define MAT_H_MM         304.8f   // 12 inches (12x24 = 609.6)
