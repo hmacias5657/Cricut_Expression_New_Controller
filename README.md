@@ -4,7 +4,7 @@ Open-source firmware for a CNC cutting machine. Drives two
 stepper motors with TMC2209 drivers, controls solenoid pressure via MOSFET PWM, accepts
 G-code/HPGL/SVG over USB serial, USB flash drive, or Wi-Fi upload, hosts a Wi-Fi
 WebSocket control interface, and emulates the original machine UI on a 128×64
-OLED display with the original membrane keyboard.
+OLED display with the original membrane keyboard. **Beware, Not tested with hardware yet**
 
 ## Features
 
