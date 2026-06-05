@@ -133,10 +133,12 @@ GPIOs. The keyboard supports all original machine keys — see
 ## Quick Start
 
 ```bash
-cd plotter
 ~/.platformio/penv/bin/pio run -t upload
 ~/.platformio/penv/bin/pio device monitor
 ```
+
+Each successful build produces a versioned binary `firmware_v{VER}_b{BUILD}.bin`
+in `.pio/build/esp32s3dev/` — the build number auto-increments.
 
 Connect to the `PlotterAP` Wi-Fi network and open `192.168.4.1` in a browser.
 
@@ -328,11 +330,10 @@ Set `KBD_ENABLE 0` to disable keyboard and recover buttons.
 ## Project Structure
 
 ```
-plotter/
 ├── include/
 │   ├── plotter_ui.h         Plotter UI spec constants, enums, PlotterState struct
 ├── src/
-│   ├── config.h            Pin definitions, motion params, feature toggles
+│   ├── config.h            Pin definitions, motion params, feature toggles, FIRMWARE_VERSION
 │   ├── main.cpp            Entry point, state machine, dual-core, Plotter UI, FW update
 │   ├── stepper.h/cpp       S-curve (jerk-limited) motion planner + step gen + homing
 │   ├── gcode_parser.h/cpp  G-code interpreter (G0–G4, G28, G90/91, M3–M5, M92, M114 + arcs)
@@ -344,7 +345,11 @@ plotter/
 │   ├── wifi_server.h/cpp   Async web server + WebSocket
 │   ├── display.h/cpp       SSD1322 OLED — Plotter status view + menu + error + FW progress
 │   └── menu.h/cpp          Plotter-style menu (Browse USB [dir nav], Settings [NVS], About, FW confirm)
-├── platformio.ini          PlatformIO config, PSRAM, dependencies
+├── scripts/
+│   └── versioning.py       PlatformIO extra script: auto build number + versioned bin
+├── platformio.ini          PlatformIO config, PSRAM, extra_scripts
+├── version.txt             SemVer + build counter (auto-managed)
+├── CHANGELOG.md            Release history per Keep a Changelog
 ├── AGENTS.md               Session context, architecture notes, open issues
 └── README.md
 ```

@@ -194,14 +194,19 @@ clears both calibrations, reverting to a flat 5-way split of the ADC range
 
 ### 3.4 About
 
-Displays:
+Displays the firmware version and build number, e.g.:
 ```
-Plotter
-Firmware v1.0
-ESP32 + TMC2209
+Plotter Firmware
+v1.0.0 (build 1)
+ESP32-S3 + TMC2209
+S-Curve Motion
 ```
 
 Firmware updates are performed via USB pendrive — see §9.
+
+**Note:** The version string is set in `src/config.h` (`FIRMWARE_VERSION`). The
+build number auto-increments on every successful compilation via
+`scripts/versioning.py`.
 
 ---
 
@@ -264,9 +269,11 @@ Example for 0.9° motors (400 steps/rev), 1/16 microstepping, 2 mm belt pitch,
 After editing `config.h`, rebuild and flash:
 
 ```bash
-cd plotter
 ~/.platformio/penv/bin/pio run -t upload
 ```
+
+The output binary is automatically versioned as
+`firmware_v{VER}_b{BUILD}.bin` in `.pio/build/esp32s3dev/`.
 
 ---
 
@@ -277,7 +284,7 @@ When power is applied, the firmware runs the following sequence in `setup()`:
 ### 5.1 Serial
 
 - Initialises UART at 115200 baud
-- Prints banner: `ESP32 GCode Plotter`
+- Prints banner: `Plotter Firmware v{VER} (build {N})` (version and build from config.h / automatic build counter)
 
 ### 5.2 GPIO
 
@@ -471,8 +478,10 @@ cd plotter
 ~/.platformio/penv/bin/pio run
 ```
 
-The output file is at `.pio/build/esp32s3dev/firmware.bin`. Copy it to the
-**root** directory of a FAT32-formatted USB flash drive.
+The output is at `.pio/build/esp32s3dev/firmware_v{VER}_b{BUILD}.bin`.
+Copy it as **`firmware.bin`** to the root directory of a FAT32-formatted
+USB flash drive (the bootloader expects the filename `firmware.bin` when
+scanning for updates).
 
 ### 9.2 Flashing Procedure
 

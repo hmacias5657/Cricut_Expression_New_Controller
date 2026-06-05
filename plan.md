@@ -1,7 +1,7 @@
 # ESP32 GCode Plotter — Improvement Plan
 
 > Generated: 2026-06-05  
-> Codebase: Sessions 1–15 as documented in AGENTS.md
+> Codebase: Sessions 1–16 as documented in AGENTS.md
 
 ---
 
@@ -483,7 +483,7 @@ cd /Users/mariacabrera/Documents/TestVScode/C_Cut_E-plotter
 ~/.platformio/penv/bin/pio run
 ```
 
-Target build budget: **RAM ≤ 60 KB** (currently 51 KB / 15.9%), **Flash ≤ 1 MB** (currently 827 KB / 25.9%).
+Target build budget: **RAM ≤ 60 KB** (currently 52 KB / 16.0%), **Flash ≤ 1 MB** (currently 878 KB / 26.3%).
 
 Hardware tests after Phase 0 (drag knife):
 - Cut a 50×50 mm square — all 4 corners should be clean right angles, not torn

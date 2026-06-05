@@ -1,6 +1,6 @@
 # Session Context — ESP32 GCode Plotter
 
-Last updated: 2026-05-25 (Session 14)
+Last updated: 2026-06-05 (Session 16)
 
 ## Goal
 Build an ESP32-S3-driven G-code/HPGL/SVG pen plotter with Plotter keyboard, OLED display, dual-core operation, SVG parsing, USB flash drive storage, and PSRAM buffering.
@@ -150,10 +150,11 @@ Several GPIOs are shared between features to fit the ESP32's limited pins. See c
 7. **USB host transfers**: The MSC BOT driver blocks the calling task during sector reads. FAT32 cluster walking may take 10s–100s of ms for large directories over Full Speed USB.
 
 ## Verification
-- Build with: `~/.platformio/penv/bin/pio run` from the `plotter/` directory
-- Build passes with RAM ~15% (51 KB SRAM), Flash ~25% (827 KB)
+- Build with: `~/.platformio/penv/bin/pio run` from the project root
+- Build passes with RAM ~16% (51 KB SRAM), Flash ~26% (878 KB)
 - PSRAM (8 MB) available via `ps_malloc()` for file buffers
 - PlatformIO CLI: `espressif32@7.0.1`, `framework-arduinoespressif32@3.20017.241212`
+- Build output: `firmware_v{VERSION}_b{BUILD}.bin` in `.pio/build/esp32s3dev/`
 
 ## File Map
 
@@ -173,6 +174,9 @@ Several GPIOs are shared between features to fit the ESP32's limited pins. See c
 | `src/svg_parser.h/cpp` | SVG path → G-code converter with zoom |
 | `src/keyboard.h/cpp` | Plotter shift-register matrix scanning |
 | `include/plotter_ui.h` | Plotter UI spec constants, enums, PlotterState struct |
+| `scripts/versioning.py` | PlatformIO extra script: auto build number + versioned bin output |
+| `version.txt` | SemVer and build counter (auto-managed) |
+| `CHANGELOG.md` | Release history per Keep a Changelog |
 | `AGENTS.md` | Session context, architecture notes, open issues |
 | `README.md` | Full documentation |
 
@@ -186,26 +190,27 @@ Several GPIOs are shared between features to fit the ESP32's limited pins. See c
 - **Test USB flash drive** — verify MSC enumeration, FAT32 reads on real hardware
 
 ### Plotter Mode Transforms
-- **Portrait mode** — apply 90° rotation to G-code coordinates when mode = MODE_PORTRAIT
-- **Fit to Page / Fit to Length** — scale G-code coordinates to mat boundaries
 - **Paper Saver** — apply material-saving layout optimization (piggyback cuts)
-- **Center Point** — offset coordinates to center of mat
-- **Line Return** — after each character (G-code group), return to line start
-- **Flip** — mirror X coordinates
-
-### Quantity & Auto Fill
-- **Quantity mode** — duplicate G-code/SVG content N times (right or down)
-- **Auto Fill** — tile as many copies as fit on the mat (max 300)
-
-### USB / File
-- **USB directory navigation** — back to parent directory in file browser
 
 ### Polish
-- **Settings persistence** — save Language, Units, Mat Size, Char Images to NVS
 - **WiFi fallback to station mode** — currently AP-only
 - **G-code planner** — the `PLANNER_BUFFER` is defined but only one move is buffered (AccelStepper has its own internal buffer)
 
 ## Session Log
+
+### Session 16 — Automatic Build Versioning
+- Added `#define FIRMWARE_VERSION "1.0.0"` to `src/config.h` — SemVer version string
+- Added `#define FIRMWARE_BUILD __BUILD_NUMBER__` to `src/config.h` — auto-incremented build number injected via build flag
+- Created `scripts/versioning.py` — PlatformIO extra script that:
+  - Pre-build: reads `version.txt` (contains `semver buildnum`), increments build number, writes it back, injects `-D__BUILD_NUMBER__=<n>` into build flags
+  - Post-build: copies `firmware.bin` → `firmware_v{semver}_b{build}.bin` in the build directory
+- Created `version.txt` — initial state: `1.0.0 1`
+- Updated `platformio.ini` — added `extra_scripts = scripts/versioning.py`
+- Updated About screen in `display.cpp` — shows `v1.0.0 (build 1)`
+- Updated serial welcome in `main.cpp` — prints version and build number
+- Created `CHANGELOG.md` — extracted from all session logs in AGENTS.md; follows Keep a Changelog + SemVer. Includes planned v1.1.0 items for future.
+- Added `CHANGELOG.md` to file map below
+- Build verified: RAM 16.0%, Flash 26.3%
 
 ### Session 14 — USB Pendrive Firmware Update
 - Added streaming file read API to `usb_drive.h/cpp` (`openFile()`, `readFile()`, `closeFile()`, `currentFileSize()`) — walks the FAT32 cluster chain incrementally instead of loading the entire file into PSRAM

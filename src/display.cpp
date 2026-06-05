@@ -353,10 +353,12 @@ void PlotterDisplay::drawMenu(PlotterMenu& menu) {
         }
 
         case MENU_ABOUT: {
-            _u8g2.setFont(u8g2_font_profont15_tf);
-            _u8g2.drawStr(4, 28, "Plotter");
-            _u8g2.drawStr(4, 42, "Firmware v1.0");
-            _u8g2.drawStr(4, 56, "ESP32 + TMC2209");
+            _u8g2.setFont(u8g2_font_profont10_tf);
+            _u8g2.drawStr(4, 20, "Plotter Firmware");
+            snprintf(_buf, sizeof(_buf), "v%s (build %d)", FIRMWARE_VERSION, FIRMWARE_BUILD);
+            _u8g2.drawStr(4, 34, _buf);
+            _u8g2.drawStr(4, 48, "ESP32-S3 + TMC2209");
+            _u8g2.drawStr(4, 62, "S-Curve Motion");
             break;
         }
 

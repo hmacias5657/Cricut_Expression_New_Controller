@@ -1407,7 +1407,7 @@ void onFwUpdate(const char* path) {
 
 void setup() {
     Serial.begin(115200);
-    Serial.println("\nESP32 GCode Plotter");
+    Serial.printf("\nPlotter Firmware v%s (build %d)\n", FIRMWARE_VERSION, FIRMWARE_BUILD);
     Serial.println("Type $help for commands");
 
     pinMode(ENDSTOP_PIN, INPUT_PULLUP);
