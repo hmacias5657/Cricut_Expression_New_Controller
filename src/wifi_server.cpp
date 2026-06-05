@@ -85,7 +85,7 @@ void PlotterServer::setupPages() {
             AwsFrameInfo* info = (AwsFrameInfo*)arg;
             if (info->final && info->index == 0 && info->len == len) {
                 ((char*)data)[len] = '\0';
-                if (_cmdCb) _cmdCb((const char*)data);
+                if (_cmdCb) _cmdCb((const char*)data, len);
             }
         }
     });

@@ -17,8 +17,8 @@ public:
     bool    begin();
     bool    isReady() { return _ready; }
 
-    // Enumerate root directory; calls cb for each entry
-    bool    enumerate(USBEnumCallback cb, void* userData);
+    // Enumerate directory (root if dir==nullptr or "/"); calls cb for each entry
+    bool    enumerate(USBEnumCallback cb, void* userData, const char* dir = "/");
 
     // Load an entire file into a PSRAM buffer (supports /dir/file paths)
     bool    loadFile(const char* path, PSRAMBuffer& buf);

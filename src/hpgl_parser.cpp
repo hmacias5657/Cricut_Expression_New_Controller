@@ -25,10 +25,20 @@ void HPGLParser::begin(const Callbacks& cb) {
     _x = _y = 0;
     _penDown = false;
     _pen = 1;
+    _scale = HPGL_DEFAULT_SCALE;
+    _ipW = HPGL_DEFAULT_IP_W;
+    _ipH = HPGL_DEFAULT_IP_H;
+    _scSet = false;
 }
 
 float HPGLParser::hpglToMM(float hpgl) const {
-    return hpgl / HPGL_UNITS_PER_MM;
+    // Apply user-unit scaling if SC was set
+    if (_scSet) {
+        float u = (hpgl - _scX1) / (_scX2 - _scX1) * _ipW;
+        float v = (hpgl - _scY1) / (_scY2 - _scY1) * _ipH;
+        return fmax(u, v) * _scale / HPGL_UNITS_PER_MM;
+    }
+    return hpgl * _scale / HPGL_UNITS_PER_MM;
 }
 
 void HPGLParser::executeMove(float x, float y) {
@@ -153,6 +163,31 @@ bool HPGLParser::parseLine(const char* line) {
             // Label – skip to terminator and ignore
             const char* lp = args;
             (void)lp;
+        }
+        else if (strcmp(cmd, "IP") == 0) {
+            // Input P1/P2 points: IP x1,y1,x2,y2
+            float vals[4];
+            int n = 0;
+            while (n < 4 && *a) {
+                vals[n++] = parseNum(a);
+            }
+            if (n >= 4) {
+                _ipW = vals[2] - vals[0];
+                _ipH = vals[3] - vals[1];
+            }
+        }
+        else if (strcmp(cmd, "SC") == 0) {
+            // Scale: SC x1,y1,x2,y2
+            float vals[4];
+            int n = 0;
+            while (n < 4 && *a) {
+                vals[n++] = parseNum(a);
+            }
+            if (n >= 4) {
+                _scX1 = vals[0]; _scY1 = vals[1];
+                _scX2 = vals[2]; _scY2 = vals[3];
+                _scSet = true;
+            }
         }
         else {
             // Unknown HPGL command – report but continue

@@ -26,6 +26,9 @@
 #define POT_PIN          35
 #define POT_LOOKBACK     4         // EMA smoothing factor (higher = smoother)
 
+// USB host timeouts (ms)
+#define USB_TIMEOUT_MS   5000
+
 // Potentiometer for cutting speed (ADC input, maps to 1-5 speed bars)
 #define SPEED_PIN        5
 #define SPEED_LOOKBACK   4
@@ -55,12 +58,23 @@
 #define STEP_PER_MM   80.0f       // depends on belt/pulley/pitch
 #define MAX_FEEDRATE  3000.0f     // mm/min
 #define ACCELERATION  800.0f      // mm/s^2
-#define JERK          8000.0f     // mm/s^3 — S-curve jerk rate
+#define JERK          8000.0f     // mm/s³ — S-curve jerk rate
 #define DEFAULT_FEED  1000.0f     // mm/min
 #define HOMING_FEED   500.0f      // mm/min
 #define HOMING_BACKOFF 5.0f       // mm to back off after hitting endstop
+#define HOMING_MAX_STEPS 50000    // safety timeout for homing
 #define MOTION_TICK_HZ 1000       // motion task loop rate (Hz)
 #define STEP_PULSE_US  2          // step pulse width (microseconds)
+
+// S-curve velocity estimation constants
+#define SCURVE_VEL_DT     0.002f  // derivative window (s) for velocity estimation
+#define SCURVE_VEL_DT_MIN 0.0005f // minimum dt for velocity estimation
+#define HOMING_MIN_STEP_US 50     // minimum step period during homing (µs)
+
+// Drag knife (swivel blade) compensation
+#define KNIFE_OFFSET_MM         0.75f   // pivot-to-blade-tip offset (mm)
+#define KNIFE_ANGLE_THRESHOLD_DEG  15.0f // min angle change triggering lift/pivot/lower
+#define KNIFE_COMPENSATION_ENABLE  1     // set 0 for plain pen plotter
 
 // WiFi
 #define WIFI_SSID       "PlotterAP"
@@ -113,6 +127,9 @@
 
 // HPGL parser (HP Graphics Language, used by Inkscape)
 #define HPGL_UNITS_PER_MM   40.0f   // standard: 1016 units/inch = 40 units/mm
+#define HPGL_DEFAULT_SCALE  1.0f    // user-unit scaling (SC command)
+#define HPGL_DEFAULT_IP_W   10160.0f // default IP width (10 inches at 1016 UP/in)
+#define HPGL_DEFAULT_IP_H   7620.0f // default IP height (7.5 inches at 1016 UP/in)
 // Pressure percentage per pen number (SP 1…N). Index 0 = pen 1.
 #define HPGL_PEN_PRESSURE   { 20, 30, 40, 50, 60, 70, 85, 100 }
 #define HPGL_DEFAULT_FEED   1000.0f // mm/min
@@ -122,6 +139,12 @@
 #define SVG_POINTS_MAX  4096
 #define SVG_CURVE_STEPS 16
 #define SVG_MAX_FILE_SIZE (2 * 1024 * 1024)  // 2 MB max SVG file size
+
+// Gap between copies in Quantity/Auto-Fill modes (mm)
+#define COPY_GAP_MM     2.0f
+
+// G-code arc support: number of linear segments to approximate a 360° arc
+#define GCODE_ARC_SEGMENTS 64
 
 // Buffer
 #define GCODE_LINE_MAX  128

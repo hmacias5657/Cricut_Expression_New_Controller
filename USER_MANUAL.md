@@ -154,6 +154,8 @@ with ►/OK. Press ◄ or SETTINGS to go back.
 When a USB flash drive is connected and ready, selecting "Browse USB" enumerates all
 files in the root directory. Hidden files (starting with `.`) are skipped.
 
+- **Directories**: `[DIR]` entries can be entered via the ►/OK key. Navigate
+  back to the parent directory with the ◄ key. Supports arbitrary nesting depth.
 - Select a file to see its info (name, type)
 - Select again to plot the file (or flash firmware for `.bin` files — see §9)
 - Files ending in `.svg` are parsed and converted to G-code on-device
@@ -177,6 +179,10 @@ Seven sub-pages:
 with `*`). Choose "SSID" or "Password" to enter text edit mode using the Plotter
 keyboard (see §2.2 Text Editing Mode above). Select "Save" to write credentials
 to NVS and restart the Wi-Fi access point with the new settings.
+
+**Settings Persistence**: Language, Units, Mat Size, and Character Images settings
+are saved to NVS automatically whenever you change them. They are restored on the
+next power cycle.
 
 **Calibrate Wizard**: Choose "Speed Cal" or "Pressure Cal" to step through the
 5 physical detents of the respective potentiometer. At each step, turn the pot
@@ -296,6 +302,8 @@ When power is applied, the firmware runs the following sequence in `setup()`:
 
 - Wires all callbacks (`onMove`, `onSolenoid`, `onHome`, `onReport`, `onFile`,
   `onError`)
+- Registers G2/G3 arc interpolation callback
+- Initialises drag knife compensation (`knifeCompReset()`)
 - Prints `HPGL ready`
 
 ### 5.6 Plotter UI State
@@ -336,8 +344,9 @@ When power is applied, the firmware runs the following sequence in `setup()`:
 
 ### 5.12 Motion Task (Core 0)
 
-- Creates `motionTask` pinned to Core 0 (stack 4096, priority 1)
-- Runs `AccelStepper.run()` continuously with `vTaskDelay(1)`
+- Creates `motionTask` pinned to Core 0 (stack 8192, priority 1)
+- Runs custom S-curve motion planner + step pulse generator with `vTaskDelay(1)`
+- `evalVelocity()` computes instantaneous velocity in O(1) per tick
 
 ### 5.13 Main Loop (Core 1)
 
@@ -345,17 +354,19 @@ After `setup()` completes, `loop()` runs on Core 1:
 
 ```
 loop iteration:
-   1. handleSerial()     — read and process serial commands
-   2. updatePressure()   — read pressure pot (EMA smoothed, 5-detent snap)
-   3. updateSpeed()      — read speed pot (EMA smoothed, 5-detent snap)
-   4. updateEncoder()    — read quadrature encoder, update zoom
-   5. handleKeyboard()   — scan Plotter keyboard matrix
-   6. wifiServer.handleClient() — handle WebSocket / HTTP
-   7. pollUSB()           — poll USB host events
-   8. Display update      — error view / menu / status view
-   9. STOP check          — abort if STOP pin pulled low
-   10. moveComplete check  — print "ok" when move finishes
-   11. State machine      — DWELL, PLAYING_SD (multi-cut loop), PAUSED
+   1. handleSerial()     — read and process serial commands (including $status)
+   2. updateBeep()       — non-blocking beep state machine (turn off, advance pattern)
+   3. updatePressure()   — read pressure pot (EMA smoothed, 5-detent snap)
+   4. updateSpeed()      — read speed pot (EMA smoothed, 5-detent snap)
+   5. updateEncoder()    — read quadrature encoder, update zoom
+   6. handleKeyboard()   — scan Plotter keyboard matrix (non-blocking debounce)
+   7. wifiServer.handleClient() — handle WebSocket / HTTP
+   8. pollUSB()           — poll USB host events, periodic health check
+   9. Display update      — error view / menu / status view
+   10. STOP check          — abort if STOP pin pulled low
+   11. moveComplete check  — print "ok" when move finishes (atomic read)
+   12. State machine      — DWELL, PLAYING_SD (multi-cut loop), PAUSED,
+       KNIFE_PIVOT (knife compensation), PostCutAction continuation
 ```
 
 ---
@@ -364,25 +375,51 @@ loop iteration:
 
 ### 6.1 G-Code
 
-Supported commands: `G0`/`G1` (move), `G4` (dwell), `G28` (home),
+Supported commands: `G0`/`G1` (move), `G2`/`G3` (clockwise/counter-clockwise
+arcs with I,J center offsets or R radius), `G4` (dwell), `G28` (home),
 `G90`/`G91` (absolute/relative), `M3`/`M4`/`M5` (solenoid with S-value),
 `M92` (set position), `M114` (report).
+
+Arcs are interpolated as line segments (`GCODE_ARC_SEGMENTS = 64` per full circle).
 
 ### 6.2 HPGL
 
 Auto-detected by two uppercase letters at line start. Supported commands:
-`IN`, `PU`, `PD`, `PA`, `PR`, `SP` (pen-to-pressure mapping), `LT`.
+`IN`, `PU`, `PD`, `PA`, `PR`, `SP` (pen-to-pressure mapping), `LT`,
+**`SC`** (user-unit scaling), **`IP`** (input P1/P2 extents).
 1016 HPGL units per inch (40 units/mm). Force mode with `$hpgl`/`$gcode`.
+
+Inkscape's HPGL output typically includes `IP` and `SC` commands to define
+the coordinate system. These are now parsed and applied automatically.
+Without `SC`, the previous default scaling applies.
 
 ### 6.3 SVG
 
 On-device conversion of `<path>` elements (`M`/`m`, `L`/`l`, `H`/`h`, `V`/`v`,
-`C`/`c`, `S`/`s`, `Q`/`q`, `T`/`t`, `Z`/`z`). Bezier curves approximated with
-line segments (`SVG_CURVE_STEPS = 16`). viewBox scaling preserves aspect ratio.
-Max file size 2 MB. Zoom adjusted via quadrature encoder (0.1×–4.0×).
+`C`/`c`, `S`/`s`, `Q`/`q`, `T`/`t`, `Z`/`z`) plus **SVG primitives**:
+`<rect>`, `<circle>`, `<ellipse>`, `<line>`, `<polyline>`, `<polygon>`.
+Bezier curves approximated with line segments (`SVG_CURVE_STEPS = 16`). viewBox
+scaling preserves aspect ratio. Max file size 2 MB. Zoom adjusted via quadrature
+encoder (0.1×–4.0×). Smooth bezier (`S`/`T`) correctly mirrors the previous
+control point for tangent-continuous joins.
 
 Multi-cut SVG plots save the converted G-code to `/GCODE/BASENAME_M##.GCO` on
 the USB drive; subsequent passes replay from the cached file.
+
+### 6.4 Drag Knife Compensation
+
+The Cricut Expression uses a drag knife (swivel blade) with the blade tip offset
+~0.75 mm from the pivot. At sharp corners (direction change > 15°), the firmware
+automatically performs a **lift → pivot → lower** sequence to prevent blade tearing:
+
+1. Raise solenoid (`M5`)
+2. Move the carriage forward past the corner in the new direction (by `KNIFE_OFFSET_MM`)
+3. Lower solenoid (`M3`)
+4. Continue on the planned path
+
+This is transparent to the G-code file — it is inserted at runtime by the
+compensation layer. The `KNIFE_ANGLE_THRESHOLD_DEG` (default 15°) and
+`KNIFE_OFFSET_MM` (default 0.75 mm) are configurable in `config.h`.
 
 ---
 
@@ -400,6 +437,7 @@ the USB drive; subsequent passes replay from the cached file.
 | `$menu up/down/select/back` | Navigate menu |
 | `$hpgl` | Force HPGL mode |
 | `$gcode` | Force G-code mode (or auto-detect) |
+| `$status` | Dump PlotterState as JSON (mode, speed, pressure, position, state, zoom) |
 | `?` | Report position + pressure |
 
 ---

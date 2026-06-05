@@ -62,6 +62,7 @@ private:
 
     void planProfile();
     float evalProfile(float t);
+    float evalVelocity(float t);
     void pulseStepX();
     void pulseStepY();
 };

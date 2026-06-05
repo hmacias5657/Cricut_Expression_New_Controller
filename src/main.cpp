@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <ctype.h>
+#include <atomic>
 #include <Preferences.h>
 #include <Update.h>
 #include "config.h"
@@ -13,6 +14,7 @@
 #include "display.h"
 #include "menu.h"
 #include "svg_parser.h"
+#include "knife_comp.h"
 #if KBD_ENABLE
 #include "keyboard.h"
 #endif
@@ -40,9 +42,9 @@ static uint8_t encPrev = 0;
 PlotterState plotter;
 
 // State machine
-enum State { IDLE, RUNNING, HOMING, DWELL, PLAYING_SD, PAUSED, PLOTTING_SVG };
-static volatile State state = IDLE;
-static volatile bool moveComplete = false;
+enum State { IDLE, RUNNING, HOMING, DWELL, PLAYING_SD, PAUSED, PLOTTING_SVG, KNIFE_PIVOT };
+static std::atomic<State> state{IDLE};
+static std::atomic<bool> moveComplete{false};
 static unsigned long dwellUntil = 0;
 static bool solenoidOn = false;
 static int potPressure = DEFAULT_PRESSURE;
@@ -60,6 +62,17 @@ static char currentFilePath[80] = "";
 
 // Multi-cut tracking
 static int multiCutPass = 0;
+
+// Non-blocking beep state
+static bool beeping = false;
+static unsigned long beepOffAt = 0;
+static unsigned long beepNextAt = 0;
+static int beepPatternIdx = 0;
+static const int* beepPatternPtr = nullptr;
+
+// Non-blocking post-cut action state
+enum PostCutAction { POST_NONE, POST_LINE_RETURN, POST_MULTI_CUT, POST_REPLAY_COPY };
+static PostCutAction postCutAction = POST_NONE;
 
 // Shift/character sequencing
 static int shiftMode = 0; // 0=normal, 1=shift, 2=shift-lock
@@ -86,8 +99,8 @@ static struct {
 } modeXform;
 
 // Forward declarations
-void processLine(const char* line);
-void handleUpload(const char* data);
+void processLine(const char* line, size_t len = 0);
+void handleUpload(const char* data, size_t dataLen);
 void plotSVG(const char* path);
 void handleButtons();
 void handlePlotterKey(int key);
@@ -106,12 +119,16 @@ void onMove(float x, float y, float f) {
         Serial.println("error: not homed");
         return;
     }
-    // Apply mode/function transforms (Flip, Portrait, Fit-to-Page, etc.)
     applyMoveTransform(x, y);
     x = constrain(x, 0, X_MAX_MM);
     y = constrain(y, 0, Y_MAX_MM);
-    stepper.setTarget(x, y, f);
-    state = RUNNING;
+    bool penDown = solenoidOn;
+    knifeMove(x, y, f, penDown);
+    if (!knifeHasPendingMove()) {
+        state = RUNNING;
+    } else {
+        state = KNIFE_PIVOT;
+    }
     display.setPosition(x, y);
 }
 
@@ -142,7 +159,7 @@ void onSolenoid(bool on, float pressure) {
 
 void onReport() {
     int pct = (gcodePressure >= 0) ? gcodePressure : potPressure;
-    Serial.printf("X:%.2f Y:%.2f P:%d%% State:%d\n", stepper.currentX(), stepper.currentY(), pct, state);
+    Serial.printf("X:%.2f Y:%.2f P:%d%% State:%d\n", stepper.currentX(), stepper.currentY(), pct, (int)state.load());
     char buf[96];
     snprintf(buf, sizeof(buf), "<X%.2f Y%.2f P:%d%%>", stepper.currentX(), stepper.currentY(), pct);
     wifiServer.broadcast(buf);
@@ -158,6 +175,7 @@ void onError(const char* msg) {
 }
 
 void onFile(const char* filename) {
+    knifeCompReset();
     strncpy(currentFilePath, filename, sizeof(currentFilePath) - 1);
 
     // Try USB drive first
@@ -189,8 +207,17 @@ static bool svgPlotting = false;
 static float svgPrevX = 0, svgPrevY = 0;
 static char gcodePath[64] = "";
 
+// Bounding box accumulation during SVG conversion (P3-3)
+static float svgBbMinX, svgBbMinY, svgBbMaxX, svgBbMaxY;
+static bool svgBbValid;
+
 void svgMoveTo(float x, float y) {
     svgPrevX = x; svgPrevY = y;
+    if (x < svgBbMinX) svgBbMinX = x;
+    if (x > svgBbMaxX) svgBbMaxX = x;
+    if (y < svgBbMinY) svgBbMinY = y;
+    if (y > svgBbMaxY) svgBbMaxY = y;
+    svgBbValid = true;
     char line[64];
     int n = snprintf(line, sizeof(line), "G0 X%.3f Y%.3f\n", x, y);
     psramBuf.write((uint8_t*)line, n);
@@ -198,6 +225,11 @@ void svgMoveTo(float x, float y) {
 
 void svgLineTo(float x, float y) {
     svgPrevX = x; svgPrevY = y;
+    if (x < svgBbMinX) svgBbMinX = x;
+    if (x > svgBbMaxX) svgBbMaxX = x;
+    if (y < svgBbMinY) svgBbMinY = y;
+    if (y > svgBbMaxY) svgBbMaxY = y;
+    svgBbValid = true;
     char line[64];
     int n = snprintf(line, sizeof(line), "G1 X%.3f Y%.3f F%.0f\n", x, y, (float)currentFeed);
     psramBuf.write((uint8_t*)line, n);
@@ -279,6 +311,10 @@ void plotSVG(const char* path) {
 
     // Home first (home = X_MAX_MM, rightmost position)
     svgPlotting = true;
+    // Init bounding box accumulation for SVG (P3-3)
+    svgBbMinX = svgBbMinY = 1e10f;
+    svgBbMaxX = svgBbMaxY = -1e10f;
+    svgBbValid = false;
     if (!stepper.isHomed()) {
         stepper.homeX();
         display.setPosition(X_MAX_MM, 0);
@@ -340,26 +376,63 @@ void plotSVG(const char* path) {
 
 // --- Command routing ---
 
-// ─── Beeper ─────────────────────────────────────────────────
+// ─── Non-blocking Beeper ────────────────────────────────────
 #if BUZZER_PIN >= 0
 void beep(int freq, int duration) {
     if (!plotter.soundOn) return;
     ledcWriteTone(BUZZER_PWM_CH, freq);
-    delay(duration);
-    ledcWriteTone(BUZZER_PWM_CH, 0);
+    beepOffAt = millis() + duration;
+    beeping = true;
+}
+
+void beepError() {
+    if (!plotter.soundOn) return;
+    beepPatternPtr = (const int[]) BEEP_ERROR_PATTERN;
+    beepPatternIdx = 0;
+    beepNextAt = 0;
+    beeping = true;
+}
+
+static void updateBeep() {
+    if (!beeping) return;
+    unsigned long now = millis();
+
+    if (beepPatternPtr) {
+        // Multi-beep pattern mode
+        if (now >= beepNextAt) {
+            if (beepPatternPtr[beepPatternIdx] > 0) {
+                ledcWriteTone(BUZZER_PWM_CH, BEEP_FREQ);
+                beepOffAt = now + beepPatternPtr[beepPatternIdx];
+                beepPatternIdx++;
+                if (beepPatternPtr[beepPatternIdx] > 0) {
+                    beepNextAt = beepOffAt + beepPatternPtr[beepPatternIdx];
+                    beepPatternIdx++;
+                } else {
+                    beepNextAt = beepOffAt;
+                    beepPatternIdx++;
+                }
+            } else {
+                beeping = false;
+                beepPatternPtr = nullptr;
+                ledcWriteTone(BUZZER_PWM_CH, 0);
+            }
+        } else if (beepOffAt > 0 && now >= beepOffAt) {
+            ledcWriteTone(BUZZER_PWM_CH, 0);
+            beepOffAt = 0;
+        }
+    } else {
+        // Single beep mode
+        if (now >= beepOffAt) {
+            ledcWriteTone(BUZZER_PWM_CH, 0);
+            beeping = false;
+        }
+    }
 }
 #else
 void beep(int, int) {}
+void beepError() {}
+static void updateBeep() {}
 #endif
-
-// ─── Error beep pattern (3 rapid bursts) ────────────────────
-void beepError() {
-    int pattern[] = BEEP_ERROR_PATTERN;
-    for (int i = 0; pattern[i] > 0; i += 2) {
-        beep(BEEP_FREQ, pattern[i]);
-        if (pattern[i + 1] > 0) delay(pattern[i + 1]);
-    }
-}
 
 // ─── Show error on display + sound beep pattern ─────────────
 void usbError(const char* msg) {
@@ -552,14 +625,16 @@ void handleMenuCmd(const char* cmd) {
     else if (strcmp(cmd, "back") == 0 || strcmp(cmd, "exit") == 0) menu.back();
 }
 
-void processLine(const char* line) {
+void processLine(const char* line, size_t len) {
     const char* p = line;
     while (*p == ' ') p++;
     if (!*p || *p == ';' || *p == '(' || *p == '\n' || *p == '\r') return;
 
     if (line[0] == '$') {
         if (strncmp(line, "$upload ", 8) == 0) {
-            handleUpload(line + 8);
+            if (len > 8) {
+                handleUpload(line + 8, len - 8);
+            }
         } else if (strcmp(line, "$files") == 0) {
             usbDrive.listFiles(Serial);
         } else if (strcmp(line, "$pause") == 0) {
@@ -586,8 +661,14 @@ void processLine(const char* line) {
         } else if (strcmp(line, "$gcode") == 0) {
             hpglMode = false;
             Serial.println("// HPGL mode OFF");
+        } else if (strcmp(line, "$status") == 0) {
+            int pct = (gcodePressure >= 0) ? gcodePressure : potPressure;
+            Serial.printf("{\"mode\":%d,\"speed\":%d,\"pressure\":%d,"
+                          "\"x\":%.2f,\"y\":%.2f,\"state\":%d,\"zoom\":%.2f}\n",
+                          plotter.mode, plotter.speedLevel, plotter.pressureLevel,
+                          stepper.currentX(), stepper.currentY(), (int)state.load(), currentZoom);
         } else if (strcmp(line, "$help") == 0) {
-            Serial.println("$upload $files $pause $resume $stop $pressure $menu $hpgl $gcode");
+            Serial.println("$upload $files $pause $resume $stop $pressure $menu $hpgl $gcode $status");
         }
         return;
     }
@@ -615,8 +696,8 @@ void processLine(const char* line) {
     }
 }
 
-void handleUpload(const char* data) {
-    const char* colon = strchr(data, ':');
+void handleUpload(const char* data, size_t dataLen) {
+    const char* colon = (const char*)memchr(data, ':', dataLen);
     if (!colon) {
         Serial.println("error: bad upload format");
         return;
@@ -626,7 +707,7 @@ void handleUpload(const char* data) {
     strncpy(filename, data, len);
     filename[len] = '\0';
     const char* content = colon + 1;
-    size_t contentLen = strlen(content);
+    size_t contentLen = dataLen - (content - data);
 
     // Buffer into PSRAM
     if (!psramBuf.isReady()) {
@@ -694,9 +775,9 @@ void playFileFromBuffer() {
 
 // --- WiFi command callback ---
 
-void onWiFiCmd(const char* msg) {
+void onWiFiCmd(const char* msg, size_t len) {
     if (strncmp(msg, "$upload ", 8) == 0) {
-        processLine(msg);
+        processLine(msg, len);
         return;
     }
     processLine(msg);
@@ -793,7 +874,7 @@ static int snapToDetent(int raw, const uint16_t cal[5]) {
 
 static int adcToLevel(int raw, bool useCal, const uint16_t cal[5]) {
     if (useCal) return snapToDetent(raw, cal);
-    return constrain(raw * 5 / 4096, 1, 5);
+    return constrain((raw * 5 + 4095) / 4096, 1, 5);
 }
 
 // --- Potentiometer reading ---
@@ -821,15 +902,19 @@ void updatePressure() {
     }
 }
 
-// --- Button handling ---
+// --- Non-blocking Button handling ---
 
 void handleButtons() {
+    static unsigned long lastBtnTime = 0;
+    unsigned long now = millis();
+    if (now - lastBtnTime < BTN_DEBOUNCE_MS) return;
+
 #if BTN_UP_PIN < 255
     static bool lastUp = HIGH;
     bool up = digitalRead(BTN_UP_PIN);
     if (up == LOW && lastUp == HIGH) {
         if (menuActive) menu.up();
-        delay(30);
+        lastBtnTime = now;
     }
     lastUp = up;
 #endif
@@ -839,7 +924,7 @@ void handleButtons() {
     bool down = digitalRead(BTN_DOWN_PIN);
     if (down == LOW && lastDown == HIGH) {
         if (menuActive) menu.down();
-        delay(30);
+        lastBtnTime = now;
     }
     lastDown = down;
 #endif
@@ -849,7 +934,7 @@ void handleButtons() {
     bool sel = digitalRead(BTN_SELECT_PIN);
     if (sel == LOW && lastSel == HIGH) {
         if (menuActive) menu.select();
-        delay(30);
+        lastBtnTime = now;
     }
     lastSel = sel;
 #endif
@@ -860,7 +945,7 @@ void handleButtons() {
     if (back == LOW && lastBack == HIGH) {
         if (menuActive) menu.back();
         else { menuActive = true; display.showMenu(true); menu.begin(); }
-        delay(30);
+        lastBtnTime = now;
     }
     lastBack = back;
 #endif
@@ -1204,11 +1289,11 @@ void updateEncoder() {
 
 void motionTask(void *pvParameters) {
     while (true) {
-        if (state == RUNNING) {
+        if (state.load() == RUNNING) {
             stepper.run();
             if (!stepper.isRunning()) {
-                state = IDLE;
-                moveComplete = true;
+                state.store(IDLE);
+                moveComplete.store(true);
             }
         }
         vTaskDelay(1);
@@ -1451,7 +1536,7 @@ void setup() {
     xTaskCreatePinnedToCore(
         motionTask,
         "motion",
-        4096,
+        8192,
         NULL,
         1,
         NULL,
@@ -1484,6 +1569,8 @@ void loop() {
         display.setIP(WiFi.softAPIP().toString().c_str());
     }
 
+    updateBeep();
+
     // Update display (fw update > error > menu > status)
     if (display.isFwUpdateMode()) {
         display.update();
@@ -1498,9 +1585,10 @@ void loop() {
     // STOP button check (dedicated pin, not in matrix)
 #if KBD_ENABLE
     if (kbd.stopPressed()) {
-        if (state == RUNNING || state == PLAYING_SD || state == PAUSED) {
+        State s = state.load();
+        if (s == RUNNING || s == PLAYING_SD || s == PAUSED) {
             psramBuf.clear();
-            state = IDLE;
+            state.store(IDLE);
             stepper.stop();
             beep(BEEP_FREQ, BEEP_LONG_MS);
             Serial.println("// stopped");
@@ -1508,30 +1596,38 @@ void loop() {
     }
 #endif
 
-    if (moveComplete) {
-        moveComplete = false;
+    bool mc = moveComplete.exchange(false);
+    if (mc) {
         display.setPosition(stepper.currentX(), stepper.currentY());
         Serial.println("ok");
     }
 
-    switch (state) {
+    // ── KNIFE_PIVOT: after pivot move completes, lower blade and continue ──
+    if (state.load() == KNIFE_PIVOT && mc) {
+        knifeExecutePending();
+        if (!knifeHasPendingMove()) {
+            state.store(RUNNING);
+        }
+    }
+
+    switch (state.load()) {
         case DWELL:
             if (millis() >= dwellUntil) {
-                state = IDLE;
+                state.store(IDLE);
                 Serial.println("ok");
             }
             break;
 
         case PLAYING_SD: {
             playFileFromBuffer();
-            // File finished — apply post-cut transforms + replay
-            if (state == IDLE) {
+            // File finished — apply post-cut transforms + replay (non-blocking)
+            if (state.load() == IDLE) {
                 // ── Line Return: go back to X origin ──
                 if (plotter.funcs.lineReturn && stepper.isHomed()) {
                     stepper.setTarget(0, stepper.currentY(), DEFAULT_FEED);
-                    state = RUNNING;
-                    // Wait for move to complete before continuing
-                    while (state == RUNNING) { vTaskDelay(1); }
+                    state.store(RUNNING);
+                    postCutAction = POST_LINE_RETURN;
+                    break;
                 }
 
                 // ── Multi-cut pass ──
@@ -1544,7 +1640,8 @@ void loop() {
                         }
                         if (ok) {
                             filePlayOffset = 0;
-                            state = PLAYING_SD;
+                            postCutAction = POST_MULTI_CUT;
+                            state.store(PLAYING_SD);
                             Serial.printf("// multi-cut pass %d/%d\n",
                                           plotter.cutsRemaining,
                                           plotter.funcs.multiCut + 1);
@@ -1561,7 +1658,6 @@ void loop() {
                         ok = usbDrive.loadFile(currentFilePath, psramBuf);
                     }
                     if (ok) {
-                        // Raise pen, then move to next copy position
                         onSolenoid(false, 0);
                         float copyOffX = 0, copyOffY = modeXform.replayOffY;
                         if (plotter.mode == MODE_AUTOFILL && modeXform.autoFillCols > 1) {
@@ -1576,19 +1672,14 @@ void loop() {
                         float targetX = copyOffX;
                         float targetY = constrain(stepper.currentY() + copyOffY, 0, Y_MAX_MM);
                         stepper.setTarget(constrain(targetX, 0, X_MAX_MM), targetY, DEFAULT_FEED * 2);
-                        state = RUNNING;
-                        while (state == RUNNING) { vTaskDelay(1); }
-                        // Rewind and replay (file handles M3/M5 pen control)
-                        filePlayOffset = 0;
-                        state = PLAYING_SD;
-                        Serial.printf("// replay copy %d (%s)\n",
-                                      modeXform.replayRemaining,
-                                      plotter.mode == MODE_AUTOFILL ? "auto-fill" : "quantity");
+                        state.store(RUNNING);
+                        postCutAction = POST_REPLAY_COPY;
                         break;
                     }
                 }
                 plotter.cutsRemaining = 0;
                 modeXform.replayRemaining = 0;
+                postCutAction = POST_NONE;
             }
             break;
         }
@@ -1599,5 +1690,39 @@ void loop() {
 
         default:
             break;
+    }
+
+    // Non-blocking post-cut continuation
+    if (mc && postCutAction != POST_NONE) {
+        if (postCutAction == POST_LINE_RETURN) {
+            postCutAction = POST_NONE;
+            if (plotter.cutsRemaining > 0 && currentFilePath[0]) {
+                bool ok = usbDrive.isReady() ? usbDrive.loadFile(currentFilePath, psramBuf) : false;
+                if (ok) {
+                    filePlayOffset = 0;
+                    state.store(PLAYING_SD);
+                    return;
+                }
+            }
+            if (modeXform.replayRemaining > 0 && currentFilePath[0]) {
+                bool ok = usbDrive.isReady() ? usbDrive.loadFile(currentFilePath, psramBuf) : false;
+                if (ok) {
+                    onSolenoid(false, 0);
+                    float offY = modeXform.replayOffY;
+                    float ty = constrain(stepper.currentY() + offY, 0, Y_MAX_MM);
+                    stepper.setTarget(0, ty, DEFAULT_FEED * 2);
+                    state.store(RUNNING);
+                    postCutAction = POST_REPLAY_COPY;
+                    return;
+                }
+            }
+            plotter.cutsRemaining = 0;
+            modeXform.replayRemaining = 0;
+        } else if (postCutAction == POST_REPLAY_COPY) {
+            postCutAction = POST_NONE;
+            filePlayOffset = 0;
+            state.store(PLAYING_SD);
+            Serial.printf("// replay copy %d\n", modeXform.replayRemaining + 1);
+        }
     }
 }

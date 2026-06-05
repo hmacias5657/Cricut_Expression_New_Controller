@@ -76,6 +76,12 @@ void PlotterMenu::back() {
     // Settings sub-pages go back to settings main
     switch (_page) {
         case MENU_FILE_LIST:
+            if (_currentDir[0] != '\0') {
+                leaveDir();
+            } else {
+                enterPage(MENU_MAIN);
+            }
+            break;
         case MENU_FILE_INFO:
         case MENU_FILE_PLOT:
             enterPage(MENU_MAIN);
@@ -129,8 +135,7 @@ void PlotterMenu::select() {
         case MENU_FILE_LIST:
             if (_fileCount > 0 && _cursor < _fileCount) {
                 if (_isDir[_cursor]) {
-                    // Directories not supported with USB FAT reader — skip
-                    _cursor = 0;
+                    enterDir(_cursor);
                 } else {
                     enterPage(MENU_FILE_INFO);
                 }
@@ -217,6 +222,7 @@ void PlotterMenu::select() {
         case MENU_SETTINGS_LANG:
             if (_cs && _cursor <= LANG_DE) {
                 _cs->lang = (PlotterLanguage)_cursor;
+                saveSettings();
                 enterPage(MENU_SETTINGS_MAIN);
             }
             break;
@@ -225,6 +231,7 @@ void PlotterMenu::select() {
         case MENU_SETTINGS_UNITS:
             if (_cs && _cursor <= UNIT_MM) {
                 _cs->unit = (PlotterUnit)_cursor;
+                saveSettings();
                 enterPage(MENU_SETTINGS_MAIN);
             }
             break;
@@ -233,6 +240,7 @@ void PlotterMenu::select() {
         case MENU_SETTINGS_MCUT:
             if (_cs) {
                 _cs->funcs.multiCut = _cursor + 1;  // 1→2pass, 2→3pass, 3→4pass
+                saveSettings();
                 enterPage(MENU_SETTINGS_MAIN);
             }
             break;
@@ -241,6 +249,7 @@ void PlotterMenu::select() {
         case MENU_SETTINGS_MAT:
             if (_cs && _cursor <= MAT_12X24) {
                 _cs->matSize = (PlotterMatSize)_cursor;
+                saveSettings();
                 enterPage(MENU_SETTINGS_MAIN);
             }
             break;
@@ -249,6 +258,7 @@ void PlotterMenu::select() {
         case MENU_SETTINGS_CHAR:
             if (_cs) {
                 _cs->charImages = (_cursor == 0);  // 0=Show, 1=Hide
+                saveSettings();
                 enterPage(MENU_SETTINGS_MAIN);
             }
             break;
@@ -329,7 +339,12 @@ void PlotterMenu::addFileEntry(const USBFileEntry& entry) {
 void PlotterMenu::refreshFileList() {
     _fileCount = 0;
     if (_usbDrive && _usbDrive->isReady()) {
-        _usbDrive->enumerate(enumCallback, this);
+        // If in a subdirectory, pass current dir path
+        if (_currentDir[0] != '\0') {
+            _usbDrive->enumerate(enumCallback, this, _currentDir);
+        } else {
+            _usbDrive->enumerate(enumCallback, this);
+        }
     }
 }
 
@@ -377,6 +392,61 @@ void PlotterMenu::feedCancel() {
         _editing = false;
         enterPage(MENU_SETTINGS_WIFI);
     }
+}
+
+// ─── Directory navigation ─────────────────────────────────────
+
+void PlotterMenu::enterDir(int idx) {
+    if (idx < 0 || idx >= _fileCount || !_isDir[idx]) return;
+
+    char newDir[64];
+    if (_currentDir[0] != '\0') {
+        snprintf(newDir, sizeof(newDir), "%s/%s", _currentDir, _fileNames[idx]);
+    } else {
+        snprintf(newDir, sizeof(newDir), "/%s", _fileNames[idx]);
+    }
+    strncpy(_currentDir, newDir, sizeof(_currentDir) - 1);
+    _currentDir[sizeof(_currentDir) - 1] = '\0';
+    refreshFileList();
+    _cursor = 0;
+    _scroll = 0;
+}
+
+void PlotterMenu::leaveDir() {
+    // Find parent directory path
+    char* lastSlash = strrchr(_currentDir, '/');
+    if (lastSlash == nullptr) {
+        _currentDir[0] = '\0';
+    } else if (lastSlash == _currentDir) {
+        _currentDir[0] = '\0';
+    } else {
+        *lastSlash = '\0';
+    }
+    refreshFileList();
+    _cursor = 0;
+    _scroll = 0;
+}
+
+// ─── Settings persistence ─────────────────────────────────────
+
+void PlotterMenu::saveSettings() {
+    if (!_cs) return;
+    prefs.begin("plotter", false);
+    prefs.putUChar("lang", (uint8_t)_cs->lang);
+    prefs.putUChar("unit", (uint8_t)_cs->unit);
+    prefs.putUChar("matSize", (uint8_t)_cs->matSize);
+    prefs.putUChar("charImg", _cs->charImages ? 1 : 0);
+    prefs.end();
+}
+
+void PlotterMenu::loadSettings() {
+    if (!_cs) return;
+    prefs.begin("plotter", true);
+    _cs->lang = (PlotterLanguage)prefs.getUChar("lang", (uint8_t)LANG_EN);
+    _cs->unit = (PlotterUnit)prefs.getUChar("unit", (uint8_t)UNIT_IN_QUARTER);
+    _cs->matSize = (PlotterMatSize)prefs.getUChar("matSize", (uint8_t)MAT_12X12);
+    _cs->charImages = prefs.getUChar("charImg", 1) != 0;
+    prefs.end();
 }
 
 // ─── WiFi save to NVS ─────────────────────────────────────────

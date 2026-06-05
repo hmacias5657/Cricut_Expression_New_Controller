@@ -1,10 +1,11 @@
 # Plotter — ESP32 Firmware Replacement
 
 Open-source firmware for a CNC cutting machine. Drives two
-stepper motors with TMC2209 drivers, controls solenoid pressure via MOSFET PWM, accepts
-G-code/HPGL/SVG over USB serial, USB flash drive, or Wi-Fi upload, hosts a Wi-Fi
-WebSocket control interface, and emulates the original machine UI on a 128×64
-OLED display with the original membrane keyboard. **Beware, Not tested with hardware yet**
+stepper motors with TMC2209 drivers and S-curve jerk-limited motion, controls solenoid
+pressure via MOSFET PWM, accepts G-code/HPGL/SVG over USB serial, USB flash drive, or
+Wi-Fi upload, hosts a Wi-Fi WebSocket control interface, and emulates the original
+machine UI on a 128×64 OLED display with the original membrane keyboard.
+**Beware, Not tested with hardware yet**
 
 ## Features
 
@@ -33,31 +34,48 @@ OLED display with the original membrane keyboard. **Beware, Not tested with hard
 - **WiFi credentials editor**: SSID/Password editable from Settings menu via Plotter keyboard text entry, saved to NVS, applied live
 
 ### Motion & Control
-- **G-code**: G0/G1, G4, G28, G90/G91, M3/M4/M5 (solenoid with S-value pressure),
-  M92 (set position), M114 (report). Configurable steps/mm, acceleration, max feedrate.
-- **HPGL**: IN, PU, PD, PA, PR, SP (pen-to-pressure mapping), LT. Auto-detected or
-  forced via `$hpgl`/`$gcode`. Compatible with Inkscape HPGL output.
-- **SVG parsing**: on-device conversion of SVG `<path>` elements (M/L/H/V/C/S/Q/T/Z)
-   to G-code with viewBox scaling and quadrature encoder zoom. Max 2 MB.
-- **Dual-core**: Core 0 runs `AccelStepper.run()` in a tight loop for jitter-free
-  step pulses; Core 1 handles UI, serial, Wi-Fi, file I/O, pots, display, keyboard.
-- **Single endstop homing**: homes X axis (rightmost = X_MAX_MM), backs off, tracks position.
+- **G-code**: G0/G1, G2/G3 (arcs with I,J,R), G4 (dwell), G28 (home), G90/G91,
+  M3/M4/M5 (solenoid with S-value pressure), M92 (set position), M114 (report).
+  Configurable steps/mm, acceleration, max feedrate.
+- **S-curve motion**: Custom 7-phase jerk-limited motion profile (jerk, acceleration,
+  cruise, deceleration, taper) replaces AccelStepper. Analytical `evalVelocity()` for
+  O(1) per-tick computation. Step pulses generated from instantaneous S-curve velocity.
+- **Drag knife compensation**: Lift/pivot/lower corner sequence when direction change
+  exceeds `KNIFE_ANGLE_THRESHOLD_DEG` (15°). Pending-move async pattern with `KNIFE_PIVOT`
+  state. Configurable offset (`KNIFE_OFFSET_MM` = 0.75 mm).
+- **HPGL**: IN, PU, PD, PA, PR, SP (pen-to-pressure mapping), LT, **SC** (user-unit
+  scaling), **IP** (input P1/P2). Auto-detected or forced via `$hpgl`/`$gcode`.
+  Compatible with Inkscape HPGL output.
+- **SVG parsing**: On-device conversion of SVG `<path>` elements (M/L/H/V/C/S/Q/T/Z)
+  plus primitives (`<rect>`, `<circle>`, `<ellipse>`, `<line>`, `<polyline>`,
+  `<polygon>`). viewBox scaling and quadrature encoder zoom (0.1×–4.0×). Max 2 MB.
+  Smooth bezier reflection (`S`/`T`) correctly mirrors previous control point.
+- **Dual-core**: Core 0 runs custom S-curve motion planner + step generator in a tight
+  loop (stack 8192); Core 1 handles UI, serial, Wi-Fi, file I/O, pots, display, keyboard.
+- **Single endstop homing**: homes X axis (rightmost = X_MAX_MM), backs off, tracks
+  position. Configurable timeout (`HOMING_MAX_STEPS` = 50000) prevents runaway on
+  missing endstop.
 - **Mode transforms**: Portrait (90° rotation), Flip (mirror X), Fit to Page/Length
   (scale from bounding box), Center Point (offset to blade position), Quantity (stack),
   Auto Fill (tile grid), Line Return (X → 0 after file). All applied in `onMove()`.
 - **Speed control**: potentiometer (GPIO 5) with 5-detent snap → feed rate 500–3000 mm/min
 - **Pressure control**: potentiometer (GPIO 35) with 5-detent snap → solenoid PWM via MOSFET
   (5 kHz, 8-bit, LEDC). Priority: G-code S-value > potentiometer.
+- **Non-blocking**: All beeps, button debouncing, and post-cut continuations use
+  timestamp-based state machines — no `delay()` or `while(state==RUNNING)`busy-waits.
 
 ### Communication & Storage
 - **Serial**: 115200 baud terminal
 - **Wi-Fi AP**: AsyncWebServer + WebSocket, file upload to PSRAM, command log
-- **USB flash drive** (native ESP32-S3 OTG): file listing, streaming G-code/HPGL/SVG
-  playback with pause/resume/stop. Full Speed (12 Mbps), MSC Bulk-Only Transport.
-  GPIO 19 (D−) / 20 (D+), fixed.
+- **USB flash drive** (native ESP32-S3 OTG): file listing with directory navigation,
+  streaming G-code/HPGL/SVG playback with pause/resume/stop. Full Speed (12 Mbps),
+  MSC Bulk-Only Transport. GPIO 19 (D−) / 20 (D+), fixed. Periodic health checks
+  with automatic state cleanup on disconnect. FSInfo-based free cluster hint for
+  faster FAT32 writes.
 - **PSRAM file buffer**: 4 MB pool; files larger than buffer show OLED error + beep
-- **Menu system**: Browse USB, Settings (7 sub-pages), About. Navigate via keyboard,
-  buttons, or `$menu` serial commands.
+- **Menu system**: Browse USB (with **directory navigation** — enter/leave subdirectories),
+  Settings (7 sub-pages — language, units, mat size, char images persisted to NVS),
+  About. Navigate via keyboard, buttons, or `$menu` serial commands.
 - **Firmware update**: Select a `.bin` file from the USB file browser → confirmation
   dialog → OTA flash to the inactive partition with OLED progress bar → automatic
   reboot. Streaming reads avoid PSRAM buffering. Validation via `Update.end()`.
@@ -162,6 +180,7 @@ Standard G-code plus `$` system commands:
 | `$menu up/down/select/back` | Navigate menu             |
 | `$hpgl`               | Force HPGL mode                   |
 | `$gcode`              | Force G-code mode (or auto-detect)|
+| `$status`             | Dump PlotterState as JSON         |
 | `?`                   | Report position + pressure        |
 
 ## Plotter UI
@@ -245,12 +264,14 @@ its own pace.
 
 | Core | Task                    | Responsibility                        |
 |------|-------------------------|---------------------------------------|
-| 0    | `motionTask`            | `AccelStepper.run()` tight loop       |
+| 0    | `motionTask`            | S-curve motion planner + step pulse   |
+|      |                         | generation (stack 8192), no busy-wait |
 | 1    | Arduino `loop()`        | Serial, Wi-Fi, file I/O, pots,        |
 |      |                         | keyboard, display, state machine      |
 
-Solenoid PWM (LEDC) and keyboard scanning are hardware-driven or debounced
-independently.
+Communication between cores: `std::atomic<bool>` `moveComplete` and `std::atomic<State>` `state`
+with `memory_order_seq_cst`. Solenoid PWM (LEDC) is hardware-driven; keyboard scanning,
+beeps, and buttons use non-blocking timestamp-based state machines.
 
 ## File Formats
 
@@ -278,8 +299,11 @@ Auto-detected by two uppercase letters at line start. Alternatively force with
 | `PA x,y;` | Plot absolute                                   |
 | `PR x,y;` | Plot relative                                   |
 | `SP n;` | Select pen (maps to pressure %, see config)      |
+| `SC x1,y1,x2,y2;` | Set user-unit scaling (Inkscape compat)  |
+| `IP x1,y1,x2,y2;` | Set input P1/P2 extents                       |
 
 Scale: 1016 HPGL units per inch (40 units/mm). Override via `HPGL_UNITS_PER_MM`.
+User-unit scaling via `SC`/`IP` is applied automatically when present in the file.
 
 ## Pin Sharing & Conflicts
 
@@ -310,15 +334,16 @@ plotter/
 ├── src/
 │   ├── config.h            Pin definitions, motion params, feature toggles
 │   ├── main.cpp            Entry point, state machine, dual-core, Plotter UI, FW update
-│   ├── stepper.h/cpp       AccelStepper XY + homing
-│   ├── gcode_parser.h/cpp  G-code interpreter
-│   ├── hpgl_parser.h/cpp   HPGL interpreter
+│   ├── stepper.h/cpp       S-curve (jerk-limited) motion planner + step gen + homing
+│   ├── gcode_parser.h/cpp  G-code interpreter (G0–G4, G28, G90/91, M3–M5, M92, M114 + arcs)
+│   ├── hpgl_parser.h/cpp   HPGL interpreter (IN/PU/PD/PA/PR/SP/LT + SC/IP)
+│   ├── knife_comp.h/cpp    Drag knife compensation (lift/pivot/lower corner sequence)
 │   ├── usb_drive.h/cpp     Native USB OTG MSC driver + FAT32 reader + streaming read
 │   ├── psram_buffer.h/cpp  PSRAM file buffer (4 MB pool, overflow error)
-│   ├── svg_parser.h/cpp    SVG → G-code converter
+│   ├── svg_parser.h/cpp    SVG → G-code converter (paths + primitives + transforms)
 │   ├── wifi_server.h/cpp   Async web server + WebSocket
 │   ├── display.h/cpp       SSD1322 OLED — Plotter status view + menu + error + FW progress
-│   └── menu.h/cpp          Plotter-style menu (Browse USB, Settings, About, FW confirm)
+│   └── menu.h/cpp          Plotter-style menu (Browse USB [dir nav], Settings [NVS], About, FW confirm)
 ├── platformio.ini          PlatformIO config, PSRAM, dependencies
 ├── AGENTS.md               Session context, architecture notes, open issues
 └── README.md

@@ -139,6 +139,7 @@ static struct {
         uint32_t fatSz;
         uint32_t bytesPerSec;
         uint8_t  secPerClus;
+        uint32_t freeClusHint{0};  // from FSInfo sector
     } fat;
 } d;
 
@@ -347,10 +348,19 @@ static bool writeFATEntry(uint32_t cluster, uint32_t val) {
 // Returns 0 if none free.
 static uint32_t findFreeCluster() {
     uint32_t totalClus = (d.fat.fatSz * d.fat.bytesPerSec) / 4;
-    for (uint32_t c = 2; c < totalClus; c++) {
+    uint32_t start = (d.fat.freeClusHint > 2) ? d.fat.freeClusHint : 2;
+    if (start >= totalClus) start = 2;
+    for (uint32_t c = start; c < totalClus; c++) {
         uint32_t v;
         if (!readFATEntry(c, v)) return 0;
-        if (v == 0) return c;  // free
+        if (v == 0) { d.fat.freeClusHint = c + 1; return c; }
+    }
+    if (start > 2) {
+        for (uint32_t c = 2; c < start; c++) {
+            uint32_t v;
+            if (!readFATEntry(c, v)) return 0;
+            if (v == 0) { d.fat.freeClusHint = c + 1; return c; }
+        }
     }
     return 0;
 }
@@ -602,6 +612,23 @@ static void initFAT() {
     d.fat.dataStartLba = partLba + bpb->rsvdSecCnt + bpb->numFATs * d.fat.fatSz;
     d.fat.clusterSize  = d.fat.secPerClus * d.fat.bytesPerSec;
     d.fat.valid        = true;
+    d.fat.freeClusHint = 0;
+
+    // Read FSInfo sector (sector 1) for free cluster count hint
+    if (bpb->fsInfo > 0) {
+        uint8_t fsInfoSector[512];
+        if (readSector(partLba + bpb->fsInfo, fsInfoSector)) {
+            uint32_t freeClus;
+            memcpy(&freeClus, fsInfoSector + 488, 4);
+            // Valid FSInfo signature: 0x41615252 at offset 484, 0x61417272 at offset 0
+            uint32_t sig1, sig2;
+            memcpy(&sig1, fsInfoSector + 484, 4);
+            memcpy(&sig2, fsInfoSector, 4);
+            if (sig1 == 0x61415252 && sig2 == 0x41617272) {
+                d.fat.freeClusHint = freeClus;
+            }
+        }
+    }
 }
 
 // =============================================================
@@ -714,10 +741,29 @@ bool USBDrive::begin() {
     return true;
 }
 
-bool USBDrive::enumerate(USBEnumCallback cb, void *userData) {
+bool USBDrive::enumerate(USBEnumCallback cb, void *userData, const char* dir) {
     if (!d.diskReady || !d.fat.valid) return false;
 
-    uint32_t clus = d.fat.rootCluster;
+    // Resolve directory cluster
+    uint32_t clus;
+    if (!dir || dir[0] == '\0' || strcmp(dir, "/") == 0) {
+        clus = d.fat.rootCluster;
+    } else {
+        uint32_t parentCluster;
+        const char* fname;
+        if (!resolvePath(dir, parentCluster, fname)) return false;
+        // fname is the last component — look it up in parent
+        char sfn[11];
+        pathToSFN(fname, sfn);
+        uint32_t sec, off;
+        if (!findDirEntryBySFN(parentCluster, sfn, sec, off)) return false;
+        uint8_t sector[512];
+        if (!readSector(sec, sector)) return false;
+        DirEntry *de = (DirEntry *)&sector[off];
+        if (!(de->attr & 0x10)) return false; // not a directory
+        clus = ((uint32_t)de->clusHi << 16) | de->clusLo;
+    }
+
     while (!isEoc(clus)) {
         uint32_t lba = d.fat.dataStartLba + (clus - 2) * d.fat.secPerClus;
         for (uint8_t s = 0; s < d.fat.secPerClus; s++) {
@@ -984,8 +1030,28 @@ void pollUSB() {
         d.devConnected = false; // prevent re-try until re-plug
     }
 
-    // If device gone, reset state
-    // (detected when transfers fail — handled in mscCommand)
+    // Detect device gone — mscCommand returns ESP_FAIL/timeout on disconnect
+    if (d.diskReady) {
+        esp_err_t test = mscTestUnitReady();
+        if (test != ESP_OK) {
+            // Device removed or timed out — reset state
+            d.diskReady = false;
+            d.fat.valid = false;
+            d.devConnected = false;
+            if (d.mscClaimed) {
+                usb_host_interface_release(d.clientHdl, d.devHdl, d.bInterfaceNumber);
+                d.mscClaimed = false;
+            }
+            if (d.devHdl) {
+                usb_host_device_close(d.clientHdl, d.devHdl);
+                d.devHdl = nullptr;
+            }
+            d.devAddr = 0;
+            d.epIn = 0;
+            d.epOut = 0;
+            d.blockCount = 0;
+        }
+    }
 }
 
 // =============================================================
@@ -1078,7 +1144,7 @@ void USBDrive::closeFile() {
 #else // USB_ENABLE == 0
 
 bool USBDrive::begin() { return false; }
-bool USBDrive::enumerate(USBEnumCallback, void*) { return false; }
+bool USBDrive::enumerate(USBEnumCallback, void*, const char*) { return false; }
 bool USBDrive::loadFile(const char*, PSRAMBuffer&) { return false; }
 bool USBDrive::exists(const char*) { return false; }
 bool USBDrive::listFiles(Print&, const char*) { return false; }

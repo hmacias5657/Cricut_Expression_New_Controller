@@ -47,7 +47,7 @@ public:
     const char* pageTitle();
 
     // Plotter state link
-    void setPlotterState(PlotterState* cs) { _cs = cs; }
+    void setPlotterState(PlotterState* cs) { _cs = cs; loadSettings(); }
 
     // USB drive link (replaces SD)
     void setUSBDrive(USBDrive* drv) { _usbDrive = drv; }
@@ -80,6 +80,14 @@ public:
     // WiFi save
     void saveWiFi();
 
+    // Settings persistence
+    void saveSettings();
+    void loadSettings();
+
+    // Directory navigation
+    void enterDir(int idx);
+    void leaveDir();
+
     // Firmware update callback
     FwUpdateCallback _fwUpdateCb;
 
@@ -105,6 +113,9 @@ private:
 
     // USB drive (replaces SD)
     USBDrive* _usbDrive{nullptr};
+    
+    // Current directory for navigation
+    char _currentDir[64]{};
 
     // Text editing state
     bool _editing{false};

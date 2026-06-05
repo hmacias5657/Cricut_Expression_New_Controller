@@ -33,6 +33,7 @@ private:
     SVGInfo _info;
     float _zoom{1.0f};
     float _cx{0}, _cy{0};
+    float _prevCpX{0}, _prevCpY{0};
     float _scale{1}, _ox{0}, _oy{0};
     Callbacks _cb;
 

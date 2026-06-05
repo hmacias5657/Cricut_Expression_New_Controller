@@ -2,11 +2,28 @@
 #include "config.h"
 #include <math.h>
 #include <stdlib.h>
+#include <string.h>
 
 static bool isCmd(char c) {
     return c == 'M' || c == 'L' || c == 'C' || c == 'Q' || c == 'Z' ||
            c == 'm' || c == 'l' || c == 'c' || c == 'q' || c == 'z' ||
            c == 'H' || c == 'h' || c == 'V' || c == 'v';
+}
+
+// Parse a comma- or space-separated number list
+static int parseFloats(const char* p, float* out, int max) {
+    int count = 0;
+    while (*p && count < max) {
+        while (*p && *p != '-' && *p != '+' && !(*p >= '0' && *p <= '9') && *p != '.') p++;
+        if (!*p) break;
+        char buf[32]; int i = 0;
+        if (*p == '-' || *p == '+') buf[i++] = *p++;
+        while (*p && ((*p >= '0' && *p <= '9') || *p == '.') && i < 30)
+            buf[i++] = *p++;
+        buf[i] = '\0';
+        out[count++] = atof(buf);
+    }
+    return count;
 }
 
 float SVGParser::nextNum(const char*& p) {
@@ -111,6 +128,7 @@ void SVGParser::parsePath(const char* d) {
                 float x3 = nextNum(d), y3 = nextNum(d);
                 if (cmd == 'c') { x1 += _cx; y1 += _cy; x2 += _cx; y2 += _cy; x3 += _cx; y3 += _cy; }
                 doCubic(x1, y1, x2, y2, x3, y3);
+                _prevCpX = x2; _prevCpY = y2;
                 prevCmd = 'C';
                 break;
             }
@@ -119,11 +137,12 @@ void SVGParser::parsePath(const char* d) {
                 float x3 = nextNum(d), y3 = nextNum(d);
                 float x1 = _cx, y1 = _cy;
                 if (prevCmd == 'C' || prevCmd == 'c' || prevCmd == 'S' || prevCmd == 's') {
-                    x1 = 2 * _cx - _cx;
-                    y1 = 2 * _cy - _cy;
+                    x1 = 2 * _cx - _prevCpX;
+                    y1 = 2 * _cy - _prevCpY;
                 }
                 if (cmd == 's') { x2 += _cx; y2 += _cy; x3 += _cx; y3 += _cy; }
                 doCubic(x1, y1, x2, y2, x3, y3);
+                _prevCpX = x2; _prevCpY = y2;
                 prevCmd = 'S';
                 break;
             }
@@ -132,6 +151,7 @@ void SVGParser::parsePath(const char* d) {
                 float x2 = nextNum(d), y2 = nextNum(d);
                 if (cmd == 'q') { x1 += _cx; y1 += _cy; x2 += _cx; y2 += _cy; }
                 doQuad(x1, y1, x2, y2);
+                _prevCpX = x1; _prevCpY = y1;
                 prevCmd = 'Q';
                 break;
             }
@@ -139,11 +159,12 @@ void SVGParser::parsePath(const char* d) {
                 float x2 = nextNum(d), y2 = nextNum(d);
                 float x1 = _cx, y1 = _cy;
                 if (prevCmd == 'Q' || prevCmd == 'q' || prevCmd == 'T' || prevCmd == 't') {
-                    x1 = 2 * _cx - _cx;
-                    y1 = 2 * _cy - _cy;
+                    x1 = 2 * _cx - _prevCpX;
+                    y1 = 2 * _cy - _prevCpY;
                 }
                 if (cmd == 't') { x2 += _cx; y2 += _cy; }
                 doQuad(x1, y1, x2, y2);
+                _prevCpX = x1; _prevCpY = y1;
                 prevCmd = 'T';
                 break;
             }
@@ -225,19 +246,134 @@ bool SVGParser::parse(const char* svg, size_t len, const Callbacks& cb) {
     _ox = (X_MAX_MM - _info.viewW * _scale) / 2.0f;
     _oy = (Y_MAX_MM - _info.viewH * _scale) / 2.0f;
 
-    // Parse all <path> elements
+    // Parse all SVG elements
     const char* p = svg;
     while (p < svg + len) {
-        const char* pathStart = strstr(p, "<path");
-        if (!pathStart || pathStart >= svg + len) break;
-        p = pathStart + 5;
+        // <path d="...">
+        const char* elemStart = strstr(p, "<path");
+        bool isPath = elemStart != nullptr && elemStart < svg + len;
+        
+        // Check for primitive elements if no path found yet or continue scanning
+        if (!isPath || elemStart > p) {
+            const char* const primitives[] = {"<rect", "<circle", "<ellipse", "<line", "<polyline", "<polygon", nullptr};
+            const char* best = nullptr;
+            for (int i = 0; primitives[i]; i++) {
+                const char* found = strstr(p, primitives[i]);
+                if (found && found < svg + len && (!best || found < best))
+                    best = found;
+            }
+            if (best && (!isPath || best < elemStart)) {
+                elemStart = best;
+                isPath = false;
+            }
+        }
+        
+        if (!elemStart || elemStart >= svg + len) break;
 
-        const char* dStart = findAttr(pathStart, svg + len - pathStart, "d");
-        if (dStart && dStart < svg + len) {
-            char pathData[SVG_PATH_MAX];
-            readValue(dStart, svg + len, pathData, sizeof(pathData));
-            parsePath(pathData);
-            _info.pathCount++;
+        if (isPath) {
+            p = elemStart + 5;
+            const char* dStart = findAttr(elemStart, svg + len - elemStart, "d");
+            if (dStart && dStart < svg + len) {
+                char pathData[SVG_PATH_MAX];
+                readValue(dStart, svg + len, pathData, sizeof(pathData));
+                parsePath(pathData);
+                _info.pathCount++;
+            }
+        } else {
+            // Determine element type and parse accordingly
+            const char* tagEnd = strchr(elemStart, '>');
+            if (!tagEnd || tagEnd >= svg + len) { p = elemStart + 1; continue; }
+            char elemBuf[256];
+            size_t eLen = min((size_t)(tagEnd - elemStart + 1), sizeof(elemBuf) - 1);
+            strncpy(elemBuf, elemStart, eLen);
+            elemBuf[eLen] = '\0';
+            
+            if (elemBuf[1] == 'r' && elemBuf[2] == 'e' && elemBuf[3] == 'c' && elemBuf[4] == 't') {
+                // <rect x="..." y="..." width="..." height="..." rx="..." ry="...">
+                float x=0, y=0, w=0, h=0, rx=0, ry=0;
+                for (const char* a = elemBuf; *a; a++) {
+                    if (strncmp(a, "x=\"", 3) == 0) x = strtof(a+3, (char**)&a);
+                    else if (strncmp(a, "y=\"", 3) == 0) y = strtof(a+3, (char**)&a);
+                    else if (strncmp(a, "width=\"", 7) == 0) w = strtof(a+7, (char**)&a);
+                    else if (strncmp(a, "height=\"", 8) == 0) h = strtof(a+8, (char**)&a);
+                }
+                if (w > 0 && h > 0) {
+                    doMove(x, y);
+                    doLine(x + w, y);
+                    doLine(x + w, y + h);
+                    doLine(x, y + h);
+                    doLine(x, y);
+                    _info.pathCount++;
+                }
+            } else if (elemBuf[1] == 'c' && elemBuf[2] == 'i' && elemBuf[3] == 'r' && elemBuf[4] == 'c' && elemBuf[5] == 'l' && elemBuf[6] == 'e') {
+                // <circle cx="..." cy="..." r="...">
+                float cx=0, cy=0, r=0;
+                for (const char* a = elemBuf; *a; a++) {
+                    if (strncmp(a, "cx=\"", 4) == 0) cx = strtof(a+4, (char**)&a);
+                    else if (strncmp(a, "cy=\"", 4) == 0) cy = strtof(a+4, (char**)&a);
+                    else if (strncmp(a, "r=\"", 3) == 0) r = strtof(a+3, (char**)&a);
+                }
+                if (r > 0) {
+                    // Approximate circle with 4 cubic bezier arcs
+                    float k = 0.5522847498f * r;
+                    float x0 = cx - r, y0 = cy;
+                    doMove(cx + r, cy);
+                    doCubic(cx + r, cy + k, cx + k, cy + r, cx, cy + r);
+                    doCubic(cx - k, cy + r, cx - r, cy + k, cx - r, cy);
+                    doCubic(cx - r, cy - k, cx - k, cy - r, cx, cy - r);
+                    doCubic(cx + k, cy - r, cx + r, cy - k, cx + r, cy);
+                    _info.pathCount++;
+                }
+            } else if (elemBuf[1] == 'e' && elemBuf[2] == 'l' && elemBuf[3] == 'l' && elemBuf[4] == 'i' && elemBuf[5] == 'p' && elemBuf[6] == 's' && elemBuf[7] == 'e') {
+                // <ellipse cx="..." cy="..." rx="..." ry="...">
+                float cx=0, cy=0, rx=0, ry=0;
+                for (const char* a = elemBuf; *a; a++) {
+                    if (strncmp(a, "cx=\"", 4) == 0) cx = strtof(a+4, (char**)&a);
+                    else if (strncmp(a, "cy=\"", 4) == 0) cy = strtof(a+4, (char**)&a);
+                    else if (strncmp(a, "rx=\"", 4) == 0) rx = strtof(a+4, (char**)&a);
+                    else if (strncmp(a, "ry=\"", 4) == 0) ry = strtof(a+4, (char**)&a);
+                }
+                if (rx > 0 && ry > 0) {
+                    float kx = 0.5522847498f * rx;
+                    float ky = 0.5522847498f * ry;
+                    doMove(cx + rx, cy);
+                    doCubic(cx + rx, cy + ky, cx + kx, cy + ry, cx, cy + ry);
+                    doCubic(cx - kx, cy + ry, cx - rx, cy + ky, cx - rx, cy);
+                    doCubic(cx - rx, cy - ky, cx - kx, cy - ry, cx, cy - ry);
+                    doCubic(cx + kx, cy - ry, cx + rx, cy - ky, cx + rx, cy);
+                    _info.pathCount++;
+                }
+            } else if (elemBuf[1] == 'l' && elemBuf[2] == 'i' && elemBuf[3] == 'n' && elemBuf[4] == 'e') {
+                // <line x1="..." y1="..." x2="..." y2="...">
+                float x1=0, y1=0, x2=0, y2=0;
+                for (const char* a = elemBuf; *a; a++) {
+                    if (strncmp(a, "x1=\"", 4) == 0) x1 = strtof(a+4, (char**)&a);
+                    else if (strncmp(a, "y1=\"", 4) == 0) y1 = strtof(a+4, (char**)&a);
+                    else if (strncmp(a, "x2=\"", 4) == 0) x2 = strtof(a+4, (char**)&a);
+                    else if (strncmp(a, "y2=\"", 4) == 0) y2 = strtof(a+4, (char**)&a);
+                }
+                doMove(x1, y1);
+                doLine(x2, y2);
+                _info.pathCount++;
+            } else if (strncmp(elemBuf+1, "polyline", 8) == 0 || strncmp(elemBuf+1, "polygon", 7) == 0) {
+                // <polyline points="x1,y1 x2,y2 ..."/>  or <polygon>
+                bool isPolygon = (elemBuf[1] == 'p' && elemBuf[2] == 'o' && elemBuf[3] == 'l' && elemBuf[4] == 'y' && elemBuf[5] == 'g');
+                const char* pts = strstr(elemBuf, "points=\"");
+                if (pts) {
+                    pts += 8;
+                    float nums[256];
+                    int n = parseFloats(pts, nums, 256);
+                    if (n >= 4) {
+                        doMove(nums[0], nums[1]);
+                        for (int i = 2; i + 1 < n; i += 2)
+                            doLine(nums[i], nums[i+1]);
+                        if (isPolygon) doLine(nums[0], nums[1]);
+                        _info.pathCount++;
+                    }
+                }
+            }
+
+            p = tagEnd + 1;
         }
     }
 

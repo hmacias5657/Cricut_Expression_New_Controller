@@ -31,6 +31,13 @@ private:
     int   _pen{1};
     float _speed{1000.0f};
 
+    // User-unit scaling (SC and IP commands)
+    float _scale{HPGL_DEFAULT_SCALE};
+    float _ipW{HPGL_DEFAULT_IP_W};
+    float _ipH{HPGL_DEFAULT_IP_H};
+    float _scX1{0}, _scY1{0}, _scX2{1}, _scY2{1};
+    bool  _scSet{false};
+
     float hpglToMM(float hpgl) const;
     void  executeMove(float x, float y);
 };

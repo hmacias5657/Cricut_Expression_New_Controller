@@ -247,7 +247,31 @@ Several GPIOs are shared between features to fit the ESP32's limited pins. See c
 - Homing uses same direct GPIO control (no AccelStepper)
 - Build verified: RAM 15.8%, Flash 25.7%
 
-### Session 10 — Correct X/Y Max Travel + Homing + Blade Navigation
+### Session 15 — Knife Compensation, Arc Support, Non-Blocking Ops, SVG/HPGL/FS Enhancements
+- **Knife compensation**: Created `knife_comp.h/cpp` — pending-move async pivot/lower/cut sequence with angle delta threshold (`KNIFE_ANGLE_THRESHOLD_DEG=15`) and configurable offset (`KNIFE_OFFSET_MM=0.75`). Uses `KNIFE_PIVOT` state and `moveComplete` atomic for lift → pivot → lower → cut flow.
+- **Atomic state**: Changed `state` and `moveComplete` from `volatile bool`/`State` to `std::atomic<State>` and `std::atomic<bool>` with `memory_order_seq_cst`; replaced `portMUX_TYPE` spinlock. Added `state.load()` cast in `onReport()` printf.
+- **Non-blocking beep**: Replaced `delay()` beeps with timestamp-based state machine (`beepOffAt`/`beepNextAt`, run from `updateBeep()` in loop).
+- **Non-blocking buttons**: `handleButtons()` uses timestamp debounce (`BTN_DEBOUNCE_MS`) saved per button.
+- **Non-blocking post-cut**: Replaced `while(state==RUNNING)` busy-waits with `PostCutAction` enum continuation pattern.
+- **Homing timeout**: Added `HOMING_MAX_STEPS` (50000) and `HOMING_MIN_STEP_US` (50) in `stepper.cpp` to prevent runaway on missing endstop.
+- **gpioSet/gpioReadRaw bank-aware**: Handles GPIOs <32 vs ≥32 separately (GPIO.out1_w1ts for 32-39).
+- **evalVelocity()**: O(1) analytical S-curve velocity function replacing `(evalProfile(elapsed+dt)-evalProfile(elapsed))/dt`.
+- **WebSocket data length**: `wifi_server.cpp` passes `len` to `_cmdCb`. `main.cpp` `handleUpload()` and `onWiFiCmd()` use `size_t dataLen`.
+- **G2/G3 arcs**: Added to `gcode_parser.cpp` — `generateArc()` with center(I,J) and radius(R) methods, segment count via `GCODE_ARC_SEGMENTS` (64), emits series of `onMove` G1 moves.
+- **SVG bezier reflection fix**: `S/s`/`T/t` commands now properly reflect the previous control point (`_prevCpX/_prevCpY`) instead of wrongly reflecting the current point.
+- **SVG primitive elements**: Added `<rect>`, `<circle>`, `<ellipse>`, `<line>`, `<polyline>`, `<polygon>` parsing in `svg_parser.cpp`.
+- **SVG `<g transform>`**: Basic `translate()` parser added.
+- **HPGL SC/IP commands**: Added user-unit scaling (`SC x1,y1,x2,y2`) and input P1/P2 (`IP x1,y1,x2,y2`) to `hpgl_parser.cpp`.
+- **USB disk state cleanup**: `pollUSB()` now periodically calls `mscTestUnitReady()` and resets `d.diskReady/fat.valid/mscClaimed/devHdl` on failure (P2-1).
+- **FSInfo free-cluster hint**: Reads FSInfo sector in `initFAT()` for `freeClusHint`; `findFreeCluster()` uses hint as scan start then wraps around.
+- **Directory navigation**: `menu.cpp` `enterDir()`/`leaveDir()` for navigating subdirectories in USB file browser; `enumerate()` accepts dir path.
+- **Settings persistence**: `saveSettings()`/`loadSettings()` persist language, units, mat size, char images to NVS via Preferences; `setPlotterState()` auto-loads.
+- **`$status` command**: Added serial command for comprehensive state dump.
+- **`adcToLevel` ceiling fix**: `(raw*5+4095)/4096` instead of floor truncation.
+- **`motionTask` stack**: Increased from 4096 to 8192.
+- Build: RAM 16.0%, Flash 26.3%
+
+### Session 14 — USB Pendrive Firmware Update
 - Updated `X_MAX_MM` from 200.0 to **304.8** (12″ gantry width)
 - Updated `Y_MAX_MM` from 200.0 to **609.6** (24″ max travel for 12×24″ mat)
 - Updated USER_MANUAL.md tables and example to match

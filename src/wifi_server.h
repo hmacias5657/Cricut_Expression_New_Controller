@@ -6,7 +6,7 @@
 #include "config.h"
 
 class PlotterServer {
-    using CmdCallback = std::function<void(const char* line)>;
+    using CmdCallback = std::function<void(const char* line, size_t len)>;
 
 public:
     void begin(const char* ssid, const char* pass, bool apMode);

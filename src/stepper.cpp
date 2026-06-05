@@ -6,12 +6,18 @@
 // ── Fast GPIO helpers (IRAM for speed) ──────────────────────
 
 static IRAM_ATTR void gpioSet(int pin, bool level) {
-    if (level) GPIO.out_w1ts = (1 << pin);
-    else       GPIO.out_w1tc = (1 << pin);
+    if (pin < 32) {
+        if (level) GPIO.out_w1ts = (1U << pin);
+        else       GPIO.out_w1tc = (1U << pin);
+    } else {
+        if (level) GPIO.out1_w1ts.val = (1U << (pin - 32));
+        else       GPIO.out1_w1tc.val = (1U << (pin - 32));
+    }
 }
 
 static IRAM_ATTR int gpioReadRaw(int pin) {
-    return (GPIO.in >> pin) & 1;
+    if (pin < 32) return (GPIO.in >> pin) & 1;
+    return (GPIO.in1.val >> (pin - 32)) & 1;
 }
 
 // ── Init ─────────────────────────────────────────────────────
@@ -300,6 +306,58 @@ float StepperControl::evalProfile(float t) {
     }
 }
 
+// ── Analytical velocity at time t (avoids double evalProfile call) ──
+float StepperControl::evalVelocity(float t) {
+    if (t <= 0) return 0;
+    if (t >= _totalTime) return 0;
+
+    float remaining = t;
+
+    // Phase 1: v(t) = J*t²/2
+    if (remaining <= _t1) {
+        return 0.5f * _j * remaining * remaining;
+    }
+    remaining -= _t1;
+
+    // Phase 2: v(t) = v1 + A*t
+    if (remaining <= _t2) {
+        return _v1 + _aMax * remaining;
+    }
+    remaining -= _t2;
+
+    // Phase 3: v(t) = v2 + A*t - J*t²/2
+    if (remaining <= _t3) {
+        float r = remaining;
+        return _v2 + _aMax * r - 0.5f * _j * r * r;
+    }
+    remaining -= _t3;
+
+    // Phase 4: v(t) = vMax (cruise)
+    if (remaining <= _t4) {
+        return _v3;
+    }
+    remaining -= _t4;
+
+    // Phase 5: v(t) = v4 - J*t²/2
+    if (remaining <= _t5) {
+        float r = remaining;
+        return _v4 - 0.5f * _j * r * r;
+    }
+    remaining -= _t5;
+
+    // Phase 6: v(t) = v5 - A*t
+    if (remaining <= _t6) {
+        return _v5 - _aMax * remaining;
+    }
+    remaining -= _t6;
+
+    // Phase 7: v(t) = v6 - A*t + J*t²/2
+    {
+        float r = remaining;
+        return _v6 - _aMax * r + 0.5f * _j * r * r;
+    }
+}
+
 // ── Public API ──────────────────────────────────────────────
 
 void StepperControl::setTarget(float x, float y, float feedrate) {
@@ -379,12 +437,8 @@ void StepperControl::run() {
     int32_t tx = _startStepX + (int32_t)roundf((_targetStepX - _startStepX) * frac);
     int32_t ty = _startStepY + (int32_t)roundf((_targetStepY - _startStepY) * frac);
 
-    // Estimate instantaneous velocity from S-curve (mm/s) for step timing
-    float dtEval = 0.002f; // 2ms derivative window
-    if (elapsed + dtEval > _totalTime) dtEval = _totalTime - elapsed;
-    if (dtEval < 0.0005f) dtEval = 0.0005f;
-    float dNext = evalProfile(elapsed + dtEval);
-    float vel = (dNext - dist) / dtEval;
+    // Analytical velocity from S-curve (mm/s) — avoids double evalProfile call
+    float vel = evalVelocity(elapsed);
     if (vel < 0.1f) vel = 0.1f;
 
     // Step period at current velocity
@@ -450,13 +504,22 @@ void StepperControl::homeX() {
     // Move right (positive X) until endstop triggers
     digitalWrite(X_DIR_PIN, HIGH);
     float stepDelayUs = 60.0f / (HOMING_FEED * STEP_PER_MM) * 1e6f;
-    if (stepDelayUs < 50) stepDelayUs = 50;
+    if (stepDelayUs < HOMING_MIN_STEP_US) stepDelayUs = HOMING_MIN_STEP_US;
 
-    while (true) {
+    int32_t steps = 0;
+    while (steps < HOMING_MAX_STEPS) {
         if (gpioReadRaw(ENDSTOP_PIN) == LOW) break;
         pulseStepX();
         _stepX++;
+        steps++;
         delayMicroseconds((uint32_t)stepDelayUs);
+    }
+
+    if (steps >= HOMING_MAX_STEPS && gpioReadRaw(ENDSTOP_PIN) != LOW) {
+        Serial.println("error: homing timeout - endstop not triggered");
+        enable(false);
+        _homed = true;
+        return;
     }
 
     // Home = X_MAX_MM
