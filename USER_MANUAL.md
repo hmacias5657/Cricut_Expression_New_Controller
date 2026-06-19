@@ -77,11 +77,11 @@ combined. Size modes (Fit to Page, Fit to Length, Auto Fill) are mutually exclus
 
 | Key | Action |
 |-----|--------|
-| LOAD MAT | Print "load mat" to serial (placeholder) |
-| UNLOAD MAT | Print "unload mat" to serial (placeholder) |
+| LOAD MAT | Home X axis, move blade to (0, 0), display "Mat loaded" |
+| UNLOAD MAT | Move blade to (X_MAX/2, 0), display "Remove mat" |
 | MAT SIZE (SET PAPER SIZE) | Toggle 12×12 / 12×24 |
-| SET CUT AREA | Print "set cut area" to serial (placeholder) |
-| LOAD LAST | Placeholder |
+| SET CUT AREA | Record current blade position as cut area origin |
+| LOAD LAST | Reload and play the last file from USB/PSRAM |
 
 #### Transport / Execute
 

@@ -101,27 +101,29 @@ Build number is managed automatically via `scripts/versioning.py`.
 
 ---
 
-## [1.1.0] — 2026-06-18
+## [1.1.1] — 2026-06-19
 
 ### Added
-- **STOP button GPIO assignment** - Configured `KBD_STOP` to GPIO 37 (requires physical wiring)
-- **M0/M1 pause state machine** - Implements pause/resume functionality for G-code files
-- **Size dial scaling** - Applies size multiplier to SVG output when using the size dial
-- **HPGL bounding box scan** - Enhanced bounding box detection for HPGL files for Fit to Page/Center Point
-- **SVG `<g transform>` scale/rotate/skew** - Full support for transform matrices in SVG elements
-- **WiFi station mode fallback** - Dual-mode WiFi (AP/STA) with fallback to AP if station connection fails
-- **NVS persistence for WiFi credentials** - Credentials now saved and restored from NVS
+- **Orchestration framework compliance** (ORCHESTRATION.agnostic.md):
+  - `PROJECTS.md` — per-project registry (commands, paths, pins, verification ladder, permission allowlists, commit format, branch policy, gate rules, rollback procedures)
+  - `LESSONS.md` — 10 portfolio-specific anti-patterns and gotchas from project history
+  - `pipeline_checklist.md` — copy-paste template for tracking pipeline phases per work unit
+  - `envelope_template.md` — ArtifactEnvelope schema for Medium/Large task handoff (§3)
+  - Development Workflow section in README.md with build/test commands and pipeline depth guide
 
 ### Changed
-- **Size dial behavior** - Now correctly scales output SVG content based on dial value
-- **HPGL parsing** - Enhanced to properly detect and parse HPGL files for bounding box calculations
-- **SVG transform support** - Expanded from basic translate to full scale/rotate/skew support
-- **WiFi mode selection** - Added support for switching between AP and STA modes
-- **Key handler actions** - Implemented full functionality for LOADMAT, UNLOADMAT, SETCUTAREA, LOADLAST keys
+- **Plan files reformatted** to §10 Orchestrator Task Template:
+  - `plan.md` — added Intake section, Execute wrapper, Pipeline depth labels
+  - `IMPROVEMENT_PLAN.md` — added Intake section, right-sized pipelines per §0
+  - `todo.md` — added Intake section, Pipeline depth labels
+- **Test files migrated** from standalone `tests/` to PlatformIO native `test/` directory:
+  - `test_hpgl_scanning` — HPGL bounding box scanner (unity framework)
+  - `test_pause_functionality` — M0/M1 pause state machine (unity framework)
+  - `test_svg_transforms` — SVG transform parsing (unity framework)
+  - `test_wifi_fallback` — WiFi station fallback (unity framework)
+- **USER_MANUAL.md** — updated LOADMAT, UNLOADMAT, SETCUTAREA, LOADLAST key descriptions from placeholders to implemented behavior
 
-### Fixed
-- **Size dial usage** - Now properly integrated into output scaling
-- **HPGL Fit-to-Page accuracy** - Correct bounding box calculation for HPGL files
-- **SVG transform correctness** - Fixed parsing and application of multiple transform types
+### Removed
+- `tests/` directory (migrated to `test/` with PlatformIO native format)
 
 ---

@@ -1,8 +1,5 @@
-// Test file for WiFi station mode functionality
-#include <iostream>
+#include <unity.h>
 #include <string>
-#include <cassert>
-
 // Mock implementation to test WiFi mode switching
 class MockWiFiManager {
 public:
@@ -64,28 +61,23 @@ public:
 };
 
 void testWiFiModeSwitching() {
-    std::cout << "Testing WiFi Mode Switching...\n";
-    
     MockWiFiManager wifi;
     
     // Test 1: Default mode (AP only)
-    assert(wifi.getMode() == MockWiFiManager::MODE_AP_ONLY);
-    assert(wifi.isConnected() == false);
-    assert(wifi.isFallbackEnabled() == false);
-    std::cout << "✓ Default mode test works\n";
+    TEST_ASSERT_EQUAL(MockWiFiManager::MODE_AP_ONLY, wifi.getMode());
+    TEST_ASSERT_FALSE(wifi.isConnected());
+    TEST_ASSERT_FALSE(wifi.isFallbackEnabled());
     
     // Test 2: Enable fallback mode
     wifi.enableFallbackMode(true);
-    assert(wifi.isFallbackEnabled() == true);
-    assert(wifi.getMode() == MockWiFiManager::MODE_STA_FALLBACK_AP);
-    std::cout << "✓ Fallback mode enable works\n";
+    TEST_ASSERT_TRUE(wifi.isFallbackEnabled());
+    TEST_ASSERT_EQUAL(MockWiFiManager::MODE_STA_FALLBACK_AP, wifi.getMode());
     
     // Test 3: Connect with valid credentials
     bool connected = wifi.connectToNetwork("TestNetwork", "password123");
-    assert(connected == true);
-    assert(wifi.isConnected() == true);
-    assert(wifi.getMode() == MockWiFiManager::MODE_STA_ONLY);
-    std::cout << "✓ WiFi connection works\n";
+    TEST_ASSERT_TRUE(connected);
+    TEST_ASSERT_TRUE(wifi.isConnected());
+    TEST_ASSERT_EQUAL(MockWiFiManager::MODE_STA_ONLY, wifi.getMode());
     
     // Test 4: Attempt connection with fallback
     wifi.enableFallbackMode(true);
@@ -93,21 +85,22 @@ void testWiFiModeSwitching() {
     
     // This should trigger the fallback fallback mechanism
     bool attemptResult = wifi.attemptConnection();
-    assert(attemptResult == false);
-    assert(wifi.getMode() == MockWiFiManager::MODE_AP_ONLY);
-    std::cout << "✓ Fallback connection works\n";
+    TEST_ASSERT_FALSE(attemptResult);
+    TEST_ASSERT_EQUAL(MockWiFiManager::MODE_AP_ONLY, wifi.getMode());
     
     // Test 5: Test STA-only mode
     wifi.enableFallbackMode(false);
     wifi.connectToNetwork("AnotherNetwork", "securepass");
-    assert(wifi.isConnected() == true);
-    assert(wifi.getMode() == MockWiFiManager::MODE_STA_ONLY);
-    std::cout << "✓ STA-only mode works\n";
-    
-    std::cout << "All WiFi Mode Tests Passed!\n\n";
+    TEST_ASSERT_TRUE(wifi.isConnected());
+    TEST_ASSERT_EQUAL(MockWiFiManager::MODE_STA_ONLY, wifi.getMode());
 }
 
-int main() {
-    testWiFiModeSwitching();
-    return 0;
+void setup() {
+    UNITY_BEGIN();
+    RUN_TEST(testWiFiModeSwitching);
+    UNITY_END();
+}
+
+void loop() {
+    delay(1000);
 }
