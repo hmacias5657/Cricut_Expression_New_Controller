@@ -1,10 +1,22 @@
 # ESP32 GCode Plotter — Improvement Roadmap
 
+## Intake
+
+- **User request:** ESP32 GCode Plotter improvement roadmap
+- **Clear:** yes
+- **Affected projects:** esp32-gcode-plotter
+- **Size:** Medium
+- **Dependency graph:** Phase 1 parallel, Phase 2 parallel, Phase 3 serial after 1+2
+
+## Execute
+
 ## Phase 1 — Quick Wins (parallel, ~1 session)
 
 These are independent changes in different sections of `main.cpp` and `config.h`. No cross-dependencies.
 
 ### Work Unit 1.1: Wire STOP Button to GPIO
+
+**Pipeline: Trivial (code → build → commit)**
 
 | Field | Value |
 |-------|-------|
@@ -25,6 +37,8 @@ These are independent changes in different sections of `main.cpp` and `config.h`
 - STOP button immediately aborts RUNNING/PLAYING_SD/PAUSED states
 
 ### Work Unit 1.3: G-code M0/M1 Pause → State Machine
+
+**Pipeline: Small (explore → code → build → test → commit)**
 
 | Field | Value |
 |-------|-------|
@@ -53,6 +67,8 @@ These are independent changes in different sections of `main.cpp` and `config.h`
 
 ### Work Unit 2.2: Size Dial Applied to Output
 
+**Pipeline: Small (explore → code → build → test → commit)**
+
 | Field | Value |
 |-------|-------|
 | **Size** | Small |
@@ -78,6 +94,8 @@ These are independent changes in different sections of `main.cpp` and `config.h`
 - Size dial and zoom (if separate) don't interfere
 
 ### Work Unit 1.0: Implement Stub Key Actions
+
+**Pipeline: Small (explore → code → build → test → commit)**
 
 | Field | Value |
 |-------|-------|
@@ -152,6 +170,8 @@ These touch different source files and can run concurrently.
 
 ### Work Unit 1.2: Fix HPGL Bounding Box
 
+**Pipeline: Medium (full pipeline)**
+
 | Field | Value |
 |-------|-------|
 | **Size** | Medium |
@@ -197,6 +217,8 @@ These touch different source files and can run concurrently.
 
 ### Work Unit 2.3: SVG `<g transform>` — Scale/Rotate/Skew
 
+**Pipeline: Medium (full pipeline)**
+
 | Field | Value |
 |-------|-------|
 | **Size** | Medium |
@@ -238,6 +260,8 @@ These touch different source files and can run concurrently.
 - Existing translate-only SVGs still work
 
 ### Work Unit 2.1: WiFi Station Mode Fallback
+
+**Pipeline: Medium (full pipeline)**
 
 | Field | Value |
 |-------|-------|
@@ -304,6 +328,8 @@ These touch different source files and can run concurrently.
 **This is the highest-risk change.** All other work must complete first because every task touches `main.cpp`.
 
 ### Work Unit 2.4: Split main.cpp into Focused Modules
+
+**Pipeline: Large (full pipeline with envelope)**
 
 | Field | Value |
 |-------|-------|

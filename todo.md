@@ -3,11 +3,23 @@
 > Generated: 2026-06-05  
 > Codebase: Sessions 1–16 (firmware v1.0.0, build 2)
 
+## Intake
+
+- **User request**: "ESP32 GCode Plotter session 17 priority tasks"
+- **Clear**: yes
+- **Affected projects**: esp32-gcode-plotter
+- **Size**: Medium
+- **Dependency graph**: Independent (all tasks can be parallelized)
+
+## Execute
+
 ---
 
 ## 🔴 P1 — Must Have
 
 ### 1.0 · Implement stub/placeholder key actions
+
+**Pipeline: Medium**
 
 Four key handlers are stubs that only print to serial. Implement real
 sequences for each:
@@ -41,6 +53,8 @@ sequences for each:
 **Files:** `src/main.cpp`, `include/plotter_ui.h`
 
 ### 1.1 · Wire STOP button to GPIO
+**Pipeline: Medium**
+
 `KBD_STOP` is `-1` in config.h. The STOP key is a dedicated button outside the
 matrix. Assign a GPIO, wire it, and handle in `loop()` as an immediate abort.
 Currently the stop check at line 1585 reads `KBD_STOP` but the pin is -1 and
@@ -49,12 +63,16 @@ nothing is wired. **Test with a physical button.**
 **Files:** `src/config.h`, `src/main.cpp`
 
 ### 1.2 · Fix HPGL bounding box for Fit to Page / Center Point
+**Pipeline: Medium**
+
 `scanBoundingBox()` only parses G0/G1 commands. HPGL files use PA/PR/PD/PU.
 Add an HPGL-aware bounding box scan (walk PSRAM buffer, parse HPGL coordinates).
 
 **Files:** `src/main.cpp`, `src/hpgl_parser.cpp`
 
 ### 1.3 · G-code M0/M1 pause — wire to state machine
+**Pipeline: Medium**
+
 Parser acknowledges M0/M1 but doesn't pause execution. Add a `PAUSED` state
 trigger from M0 and resume on serial `$resume` or keyboard CUT.
 
@@ -65,6 +83,8 @@ trigger from M0 and resume on serial `$resume` or keyboard CUT.
 ## 🟠 P2 — Should Have
 
 ### 2.1 · WiFi station mode fallback
+**Pipeline: Medium**
+
 Currently AP-only (`WIFI_AP_MODE 1`). Add option to connect to an existing
 WiFi network (station mode). Save mode selection in NVS. Fallback to AP if
 station connection fails.
@@ -72,6 +92,8 @@ station connection fails.
 **Files:** `src/config.h`, `src/wifi_server.cpp`, `src/menu.cpp`
 
 ### 2.2 · Size dial applied to output
+**Pipeline: Medium**
+
 Size dial value is displayed but never used. Should scale character output
 (just like zoom scales SVG). Wire into `applyMoveTransform()` or add a
 size-based scaling factor to G-code playback.
@@ -79,12 +101,16 @@ size-based scaling factor to G-code playback.
 **Files:** `src/main.cpp`, `src/config.h`
 
 ### 2.3 · SVG `<g transform>` — support scale/rotate/skew
+**Pipeline: Medium**
+
 Currently only `translate()`. Real-world SVGs use `scale()`, `rotate()`,
 and `matrix()`. Parse these and apply to all child elements.
 
 **Files:** `src/svg_parser.cpp`, `src/svg_parser.h`
 
 ### 2.4 · Split `main.cpp` (~1728 lines) into focused modules
+**Pipeline: Large**
+
 Extract into separate `.h/.cpp` files:
 
 | New File | Content |
@@ -100,6 +126,8 @@ Extract into separate `.h/.cpp` files:
 ## 🟡 P3 — Nice to Have
 
 ### 3.1 · G-code motion planner buffering
+**Pipeline: Medium**
+
 `PLANNER_BUFFER` (16) is defined but unused. AccelStepper was replaced with
 custom S-curve code that also only buffers one move. Implement a look-ahead
 planner to queue moves and optimise corner speed.
@@ -107,18 +135,24 @@ planner to queue moves and optimise corner speed.
 **Files:** `src/stepper.cpp`, `src/main.cpp`
 
 ### 3.2 · Paper Saver layout optimisation
+**Pipeline: Medium**
+
 Toggle is tracked but no optimisations applied. Piggyback adjacent shapes
 to minimise material waste.
 
 **Files:** `src/main.cpp`
 
 ### 3.3 · Mix 'n Match file alternation
+**Pipeline: Medium**
+
 Toggle is tracked but alternation between two loaded files not implemented.
 Require two files loaded in PSRAM, alternate per cut.
 
 **Files:** `src/main.cpp`, `src/menu.cpp`
 
 ### 3.4 · Encrypt WiFi password in NVS
+**Pipeline: Medium**
+
 Plaintext in NVS. Use `nvs_flash` encryption or at minimum obfuscate.
 
 **File:** `src/main.cpp`
@@ -128,6 +162,8 @@ Plaintext in NVS. Use `nvs_flash` encryption or at minimum obfuscate.
 ## 🔵 P4 — Polish / Hardening
 
 ### 4.1 · Hardware bring-up checklist
+**Pipeline: Trivial**
+
 - [ ] Verify keyboard matrix scanning (all 120+ keys)
 - [ ] Test endstop homing with timeout
 - [ ] Tune `STEP_PER_MM` for belt/pulley/microstepping
@@ -143,6 +179,8 @@ Plaintext in NVS. Use `nvs_flash` encryption or at minimum obfuscate.
 - [ ] Test OTA firmware update from USB
 
 ### 4.2 · Non-blocking firmware update
+**Pipeline: Medium**
+
 `performFirmwareUpdate()` blocks Core 1. Stream in the background and update
 OLED from the loop.
 
@@ -158,3 +196,5 @@ After each change, run:
 ```
 
 Target: RAM ≤ 60 KB, Flash ≤ 1 MB.
+
+(End of file - total 160 lines)

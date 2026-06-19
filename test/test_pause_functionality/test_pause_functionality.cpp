@@ -1,7 +1,5 @@
 // Test file for M0/M1 pause functionality
-#include <iostream>
-#include <string>
-#include <cassert>
+#include <unity.h>
 
 // Mock implementation to test pause functionality
 class MockGCodeParser {
@@ -64,48 +62,43 @@ public:
 };
 
 void testPauseFunctionality() {
-    std::cout << "Testing M0/M1 Pause Functionality...\n";
-    
     MockGCodeParser parser;
     
     // Test 1: Initial state
-    assert(parser.isIdle() == true);
-    assert(parser.isRunning() == false);
-    assert(parser.isPaused() == false);
-    std::cout << "✓ Initial state test works\n";
+    TEST_ASSERT_TRUE(parser.isIdle());
+    TEST_ASSERT_FALSE(parser.isRunning());
+    TEST_ASSERT_FALSE(parser.isPaused());
     
     // Test 2: Process normal command
     parser.processCommand("G0 X10 Y10");
-    assert(parser.isRunning() == true);
-    std::cout << "✓ Normal command processing works\n";
+    TEST_ASSERT_TRUE(parser.isRunning());
     
     // Test 3: Process pause command
     parser.processCommand("M0");
-    assert(parser.isPaused() == true);
-    assert(parser.pauseRequested == true);
-    std::cout << "✓ M0 pause command works\n";
+    TEST_ASSERT_TRUE(parser.isPaused());
+    TEST_ASSERT_TRUE(parser.pauseRequested);
     
     // Test 4: Resume from pause
     parser.resumeFromPause();
-    assert(parser.isRunning() == true);
-    assert(parser.resumeRequested == true);
-    std::cout << "✓ Resume from pause works\n";
+    TEST_ASSERT_TRUE(parser.isRunning());
+    TEST_ASSERT_TRUE(parser.resumeRequested);
     
     // Test 5: Process M1 command (same as M0)
     parser.processCommand("G1 X20 Y20");
     parser.processCommand("M1");
-    assert(parser.isPaused() == true);
-    std::cout << "✓ M1 pause command works\n";
+    TEST_ASSERT_TRUE(parser.isPaused());
     
     // Test 6: Process position command while paused
     parser.processCommand("M114"); 
-    assert(parser.isPaused() == true);
-    std::cout << "✓ Position command while paused works\n";
-    
-    std::cout << "All Pause Functionality Tests Passed!\n\n";
+    TEST_ASSERT_TRUE(parser.isPaused());
 }
 
-int main() {
-    testPauseFunctionality();
-    return 0;
+void setup() {
+    UNITY_BEGIN();
+    RUN_TEST(testPauseFunctionality);
+    UNITY_END();
+}
+
+void loop() {
+    delay(1000);
 }

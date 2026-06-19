@@ -1,8 +1,4 @@
-// Test file for HPGL bounding box scanning
-#include <iostream>
-#include <string>
-#include <vector>
-#include <cassert>
+#include <unity.h>
 
 // Mock implementation to test bounding box scanning
 class MockHPGLScanner {
@@ -62,8 +58,6 @@ public:
 };
 
 void testHPGLScanning() {
-    std::cout << "Testing HPGL Scanning...\n";
-    
     // Test 1: HPGL file detection
     {
         std::vector<std::string> hpglLines = {
@@ -72,8 +66,7 @@ void testHPGLScanning() {
             "PD 100,100"    // HPGL command
         };
         
-        assert(MockHPGLScanner::isHPGLFile(hpglLines) == true);
-        std::cout << "✓ HPGL file detection works\n";
+        TEST_ASSERT_TRUE(MockHPGLScanner::isHPGLFile(hpglLines));
     }
     
     // Test 2: G-code file detection
@@ -84,8 +77,7 @@ void testHPGLScanning() {
             "M3 S100"       // G-code command
         };
         
-        assert(MockHPGLScanner::isHPGLFile(gcodeLines) == false);
-        std::cout << "✓ G-code file detection works\n";
+        TEST_ASSERT_FALSE(MockHPGLScanner::isHPGLFile(gcodeLines));
     }
     
     // Test 3: Mixed file detection - should detect HPGL
@@ -96,15 +88,13 @@ void testHPGLScanning() {
             "PU 0,0"        // HPGL command
         };
         
-        assert(MockHPGLScanner::isHPGLFile(mixedLines) == true);
-        std::cout << "✓ Mixed file detection works\n";
+        TEST_ASSERT_TRUE(MockHPGLScanner::isHPGLFile(mixedLines));
     }
     
     // Test 4: Empty file
     {
         std::vector<std::string> emptyLines = {};
-        assert(MockHPGLScanner::isHPGLFile(emptyLines) == false);
-        std::cout << "✓ Empty file handling works\n";
+        TEST_ASSERT_FALSE(MockHPGLScanner::isHPGLFile(emptyLines));
     }
     
     // Test 5: Bounding box scanning
@@ -116,18 +106,20 @@ void testHPGLScanning() {
         };
         
         auto bbox = MockHPGLScanner::scanHPGLBoundingBox(hpglLines);
-        assert(bbox.valid == true);
-        assert(bbox.minX == -10.0f);
-        assert(bbox.maxX == 10.0f);
-        assert(bbox.minY == -5.0f);
-        assert(bbox.maxY == 5.0f);
-        std::cout << "✓ HPGL bounding box scanning works\n";
+        TEST_ASSERT_TRUE(bbox.valid);
+        TEST_ASSERT_EQUAL_FLOAT(-10.0f, bbox.minX);
+        TEST_ASSERT_EQUAL_FLOAT(10.0f, bbox.maxX);
+        TEST_ASSERT_EQUAL_FLOAT(-5.0f, bbox.minY);
+        TEST_ASSERT_EQUAL_FLOAT(5.0f, bbox.maxY);
     }
-    
-    std::cout << "All HPGL Scanning Tests Passed!\n\n";
 }
 
-int main() {
-    testHPGLScanning();
-    return 0;
+void setup() {
+    UNITY_BEGIN();
+    RUN_TEST(testHPGLScanning);
+    UNITY_END();
+}
+
+void loop() {
+    delay(1000);
 }

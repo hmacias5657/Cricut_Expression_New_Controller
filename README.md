@@ -148,6 +148,12 @@ GPIOs. The keyboard supports all original machine keys — see
 Each successful build produces a versioned binary `firmware_v{VER}_b{BUILD}.bin`
 in `.pio/build/esp32s3dev/` — the build number auto-increments.
 
+Run the test suite:
+
+```bash
+~/.platformio/penv/bin/pio test
+```
+
 Connect to the `PlotterAP` Wi-Fi network and open `192.168.4.1` in a browser.
 
 ## Configuration
@@ -355,12 +361,55 @@ Set `KBD_ENABLE 0` to disable keyboard and recover buttons.
 │   └── menu.h/cpp          Plotter-style menu (Browse USB [dir nav], Settings [NVS], About, FW confirm)
 ├── scripts/
 │   └── versioning.py       PlatformIO extra script: auto build number + versioned bin
+├── test/
+│   ├── test_hpgl_scanning/     HPGL bounding box scanner tests (unity)
+│   ├── test_pause_functionality/ M0/M1 pause state machine tests (unity)
+│   ├── test_svg_transforms/    SVG transform parsing tests (unity)
+│   └── test_wifi_fallback/     WiFi station fallback tests (unity)
 ├── platformio.ini          PlatformIO config, PSRAM, extra_scripts
 ├── version.txt             SemVer + build counter (auto-managed)
 ├── CHANGELOG.md            Release history per Keep a Changelog
 ├── AGENTS.md               Session context, architecture notes, open issues
+├── PROJECTS.md             Per-project registry (commands, pins, gates, allowlists)
+├── LESSONS.md              Portfolio-specific anti-patterns and gotchas
+├── pipeline_checklist.md   Pipeline checklist template (§0/§2/§5)
+├── envelope_template.md    ArtifactEnvelope template (§3)
 └── README.md
 ```
+
+## Development Workflow
+
+This project follows the [ORCHESTRATION.agnostic.md](ORCHESTRATION.agnostic.md)
+framework for task decomposition and subagent orchestration. Key files:
+
+| File | Purpose |
+|------|---------|
+| `PROJECTS.md` | Build/test commands, pin table, verification ladder, permission allowlist, commit format, gate rules |
+| `LESSONS.md` | 10 anti-patterns and gotchas from project history |
+| `pipeline_checklist.md` | Copy-paste template for tracking pipeline phases per work unit |
+| `envelope_template.md` | ArtifactEnvelope schema for Medium/Large tasks (§3 handoff) |
+| `ORCHESTRATION.agnostic.md` | Framework rules (internal, not version-controlled) |
+
+### Build & Test
+
+```bash
+# Build
+~/.platformio/penv/bin/pio run
+
+# Test
+~/.platformio/penv/bin/pio test
+
+# Upload
+~/.platformio/penv/bin/pio run -t upload
+```
+
+### Pipeline Depth (per §0)
+
+| Task Size | Pipeline |
+|-----------|----------|
+| Trivial | code → build → commit |
+| Small | explore → code → build → test → commit |
+| Medium/Large | Full pipeline with artifact envelope |
 
 ## Dependencies
 

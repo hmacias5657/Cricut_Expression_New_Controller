@@ -1,8 +1,5 @@
-// Test file for SVG transform parsing functionality
-#include <iostream>
-#include <string>
-#include <vector>
-#include <cassert>
+#include <unity.h>
+// ... mock class and test functions ...
 
 // Mock minimal implementation to test transform parsing logic
 class MockSVGParser {
@@ -78,64 +75,60 @@ public:
 };
 
 void testSvgTransformParsing() {
-    std::cout << "Testing SVG Transform Parsing...\n";
-    
     // Test 1: Scale transform
     {
         std::string transform = "scale(2, 1.5)";
         auto result = MockSVGParser::parseTransform(transform);
-        assert(result.scaleX == 2.0f);
-        assert(result.scaleY == 1.5f);
-        assert(result.rotate == 0.0f);
-        assert(result.translateX == 0.0f);
-        assert(result.translateY == 0.0f);
-        std::cout << "✓ Scale transform parsing works\n";
+        TEST_ASSERT_EQUAL_FLOAT(2.0f, result.scaleX);
+        TEST_ASSERT_EQUAL_FLOAT(1.5f, result.scaleY);
+        TEST_ASSERT_EQUAL_FLOAT(0.0f, result.rotate);
+        TEST_ASSERT_EQUAL_FLOAT(0.0f, result.translateX);
+        TEST_ASSERT_EQUAL_FLOAT(0.0f, result.translateY);
     }
     
     // Test 2: Rotate transform
     {
         std::string transform = "rotate(45)";
         auto result = MockSVGParser::parseTransform(transform);
-        assert(result.rotate == 45.0f);
-        assert(result.scaleX == 1.0f);
-        std::cout << "✓ Rotate transform parsing works\n";
+        TEST_ASSERT_EQUAL_FLOAT(45.0f, result.rotate);
+        TEST_ASSERT_EQUAL_FLOAT(1.0f, result.scaleX);
     }
     
     // Test 3: Translate transform
     {
         std::string transform = "translate(10, 20)";
         auto result = MockSVGParser::parseTransform(transform);
-        assert(result.translateX == 10.0f);
-        assert(result.translateY == 20.0f);
-        std::cout << "✓ Translate transform parsing works\n";
+        TEST_ASSERT_EQUAL_FLOAT(10.0f, result.translateX);
+        TEST_ASSERT_EQUAL_FLOAT(20.0f, result.translateY);
     }
     
     // Test 4: Combined transforms
     {
         std::string transform = "translate(10, 20) scale(2, 1.5) rotate(45)";
         auto result = MockSVGParser::parseTransform(transform);
-        assert(result.translateX == 10.0f);
-        assert(result.translateY == 20.0f);
-        assert(result.scaleX == 2.0f);
-        assert(result.scaleY == 1.5f);
-        assert(result.rotate == 45.0f);
-        std::cout << "✓ Combined transform parsing works\n";
+        TEST_ASSERT_EQUAL_FLOAT(10.0f, result.translateX);
+        TEST_ASSERT_EQUAL_FLOAT(20.0f, result.translateY);
+        TEST_ASSERT_EQUAL_FLOAT(2.0f, result.scaleX);
+        TEST_ASSERT_EQUAL_FLOAT(1.5f, result.scaleY);
+        TEST_ASSERT_EQUAL_FLOAT(45.0f, result.rotate);
     }
     
     // Test 5: Valid transform detection
     {
-        assert(MockSVGParser::isValidTransform("scale(2, 1.5)"));
-        assert(MockSVGParser::isValidTransform("rotate(45)"));
-        assert(MockSVGParser::isValidTransform("translate(10, 20)"));
-        assert(!MockSVGParser::isValidTransform(""));
-        assert(!MockSVGParser::isValidTransform("invalid"));
-        std::cout << "✓ Transform validation works\n";
+        TEST_ASSERT_TRUE(MockSVGParser::isValidTransform("scale(2, 1.5)"));
+        TEST_ASSERT_TRUE(MockSVGParser::isValidTransform("rotate(45)"));
+        TEST_ASSERT_TRUE(MockSVGParser::isValidTransform("translate(10, 20)"));
+        TEST_ASSERT_FALSE(MockSVGParser::isValidTransform(""));
+        TEST_ASSERT_FALSE(MockSVGParser::isValidTransform("invalid"));
     }
-    
-    std::cout << "All SVG Transform Tests Passed!\n\n";
 }
 
-int main() {
-    testSvgTransformParsing();
-    return 0;
+void setup() {
+    UNITY_BEGIN();
+    RUN_TEST(testSvgTransformParsing);
+    UNITY_END();
+}
+
+void loop() {
+    delay(1000);
 }
