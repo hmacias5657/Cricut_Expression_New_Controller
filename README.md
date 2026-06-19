@@ -30,13 +30,14 @@ machine UI on a 128×64 OLED display with the original membrane keyboard.
   sound/language/units status
 - **Buzzer/beep**: short keypress confirmation, long beep on stop, respects Sound On/Off
 - **Multi-cut auto-replay**: reopens and replays the file for each pass
-- **Size dial**: defaults to 1.0″ on startup (input source TBD)
+- **Size dial**: defaults to 1.0″ on startup (input source: quadrature encoder)
 - **WiFi credentials editor**: SSID/Password editable from Settings menu via Plotter keyboard text entry, saved to NVS, applied live
+- **STOP button**: Dedicated GPIO pin for emergency stop (requires physical wiring)
 
 ### Motion & Control
 - **G-code**: G0/G1, G2/G3 (arcs with I,J,R), G4 (dwell), G28 (home), G90/G91,
-  M3/M4/M5 (solenoid with S-value pressure), M92 (set position), M114 (report).
-  Configurable steps/mm, acceleration, max feedrate.
+  M3/M4/M5 (solenoid with S-value pressure), M92 (set position), M114 (report),
+  M0/M1 (pause) - with pause state machine.
 - **S-curve motion**: Custom 7-phase jerk-limited motion profile (jerk, acceleration,
   cruise, deceleration, taper) replaces AccelStepper. Analytical `evalVelocity()` for
   O(1) per-tick computation. Step pulses generated from instantaneous S-curve velocity.
@@ -46,10 +47,12 @@ machine UI on a 128×64 OLED display with the original membrane keyboard.
 - **HPGL**: IN, PU, PD, PA, PR, SP (pen-to-pressure mapping), LT, **SC** (user-unit
   scaling), **IP** (input P1/P2). Auto-detected or forced via `$hpgl`/`$gcode`.
   Compatible with Inkscape HPGL output.
+  **Enhanced HPGL bounding box scan** for Fit to Page/Center Point functions.
 - **SVG parsing**: On-device conversion of SVG `<path>` elements (M/L/H/V/C/S/Q/T/Z)
   plus primitives (`<rect>`, `<circle>`, `<ellipse>`, `<line>`, `<polyline>`,
   `<polygon>`). viewBox scaling and quadrature encoder zoom (0.1×–4.0×). Max 2 MB.
   Smooth bezier reflection (`S`/`T`) correctly mirrors previous control point.
+  **Enhanced SVG `<g transform>` support**: scale, rotate, skew, matrix transforms.
 - **Dual-core**: Core 0 runs custom S-curve motion planner + step generator in a tight
   loop (stack 8192); Core 1 handles UI, serial, Wi-Fi, file I/O, pots, display, keyboard.
 - **Single endstop homing**: homes X axis (rightmost = X_MAX_MM), backs off, tracks
@@ -63,10 +66,14 @@ machine UI on a 128×64 OLED display with the original membrane keyboard.
   (5 kHz, 8-bit, LEDC). Priority: G-code S-value > potentiometer.
 - **Non-blocking**: All beeps, button debouncing, and post-cut continuations use
   timestamp-based state machines — no `delay()` or `while(state==RUNNING)`busy-waits.
+- **WiFi station mode**: Supports both AP and STA WiFi modes with fallback to AP if
+  station connection fails. Credentials persist in NVS.
 
 ### Communication & Storage
 - **Serial**: 115200 baud terminal
 - **Wi-Fi AP**: AsyncWebServer + WebSocket, file upload to PSRAM, command log
+- **Wi-Fi Station Mode**: Optional STA mode with fallback to AP if connection fails.
+  Credentials saved to NVS and applied live.
 - **USB flash drive** (native ESP32-S3 OTG): file listing with directory navigation,
   streaming G-code/HPGL/SVG playback with pause/resume/stop. Full Speed (12 Mbps),
   MSC Bulk-Only Transport. GPIO 19 (D−) / 20 (D+), fixed. Periodic health checks
@@ -93,6 +100,7 @@ machine UI on a 128×64 OLED display with the original membrane keyboard.
 | Solenoid PWM     | 32   | LEDC channel 0, 5 kHz, 8-bit      |
 | Pot (pressure)   | 35   | 10 kΩ, ADC, 5 detent positions    |
 | Pot (speed)      | 5    | 10 kΩ, ADC, 5 detent positions    |
+| STOP Button      | 37   | Dedicated GPIO for emergency stop (physical wiring required) |
 | Buzzer           | —    | Set BUZZER_PIN in config.h         |
 | OLED CS          | 15   |                                    |
 | OLED DC          | 2    |                                    |

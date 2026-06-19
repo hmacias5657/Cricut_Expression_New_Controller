@@ -101,15 +101,27 @@ Build number is managed automatically via `scripts/versioning.py`.
 
 ---
 
-## [1.1.0] — TBD
+## [1.1.0] — 2026-06-18
 
-### Planned
-- Hardware testing (keyboard scanning, endstop, solenoid, buzzer)
-- Tune `STEP_PER_MM` for actual belt/pulley/microstepping
-- STOP button wiring
-- HPGL bounding box for Fit to Page / Center Point
-- Paper Saver layout optimisation
-- Mix 'n Match file alternation
-- Character cartridge emulation
-- Wi-Fi station mode fallback
-- G-code motion planner buffering
+### Added
+- **STOP button GPIO assignment** - Configured `KBD_STOP` to GPIO 37 (requires physical wiring)
+- **M0/M1 pause state machine** - Implements pause/resume functionality for G-code files
+- **Size dial scaling** - Applies size multiplier to SVG output when using the size dial
+- **HPGL bounding box scan** - Enhanced bounding box detection for HPGL files for Fit to Page/Center Point
+- **SVG `<g transform>` scale/rotate/skew** - Full support for transform matrices in SVG elements
+- **WiFi station mode fallback** - Dual-mode WiFi (AP/STA) with fallback to AP if station connection fails
+- **NVS persistence for WiFi credentials** - Credentials now saved and restored from NVS
+
+### Changed
+- **Size dial behavior** - Now correctly scales output SVG content based on dial value
+- **HPGL parsing** - Enhanced to properly detect and parse HPGL files for bounding box calculations
+- **SVG transform support** - Expanded from basic translate to full scale/rotate/skew support
+- **WiFi mode selection** - Added support for switching between AP and STA modes
+- **Key handler actions** - Implemented full functionality for LOADMAT, UNLOADMAT, SETCUTAREA, LOADLAST keys
+
+### Fixed
+- **Size dial usage** - Now properly integrated into output scaling
+- **HPGL Fit-to-Page accuracy** - Correct bounding box calculation for HPGL files
+- **SVG transform correctness** - Fixed parsing and application of multiple transform types
+
+---
