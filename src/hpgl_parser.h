@@ -17,8 +17,11 @@ public:
         ErrorCb onError;
     };
 
+    struct HPGLBBox { float minX, minY, maxX, maxY; bool valid; };
+
     void begin(const Callbacks& cb);
     bool parseLine(const char* line);
+    HPGLBBox hpglScanBBox(const uint8_t* buf, size_t len);
 
     float currentX() const { return _x; }
     float currentY() const { return _y; }

@@ -49,6 +49,115 @@ void HPGLParser::executeMove(float x, float y) {
     if (_cb.onMove) _cb.onMove(x, y, _speed);
 }
 
+// Scan HPGL buffer for bounding box
+HPGLParser::HPGLBBox HPGLParser::hpglScanBBox(const uint8_t* buf, size_t len) {
+    HPGLBBox bbox = {1e10f, 1e10f, -1e10f, -1e10f, false};
+    
+    // Track current position for relative moves (PR)
+    float currX = 0, currY = 0;
+    
+    // Parse HPGL commands
+    const char* p = (const char*)buf;
+    const char* end = (const char*)buf + len;
+    
+    // Skip leading whitespace and comments
+    while (p < end && (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n' || *p == '(' || *p == ';')) {
+        if (*p == '(' || *p == ';') {
+            while (p < end && *p != '\n' && *p != '\r') p++;
+        } else {
+            p++;
+        }
+    }
+    
+    while (p < end) {
+        // Skip whitespace
+        while (p < end && (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')) p++;
+        
+        if (p >= end) break;
+        
+        // Process command (2-letter command)
+        if (isalpha(p[0]) && isalpha(p[1])) {
+            char cmd[3] = {p[0], p[1], 0};
+            p += 2;
+            
+            // Skip whitespace after command
+            while (p < end && (*p == ' ' || *p == '\t')) p++;
+            
+            // Parse coordinates
+            float x = 0, y = 0;
+            if (strcmp(cmd, "IN") == 0) {
+                // Initialize to 0,0
+                currX = 0; currY = 0;
+            } else if (strcmp(cmd, "PA") == 0) {
+                // Absolute position
+                x = parseNum(p);
+                y = parseNum(p);
+                if (x != 0 || y != 0) {
+                    currX = x;
+                    currY = y;
+                }
+            } else if (strcmp(cmd, "PR") == 0) {
+                // Relative position
+                x = parseNum(p);
+                y = parseNum(p);
+                currX += x;
+                currY += y;
+            } else if (strcmp(cmd, "PU") == 0) {
+                // Pen up - don't move
+                x = parseNum(p);
+                y = parseNum(p);
+                // Don't update position
+            } else if (strcmp(cmd, "PD") == 0) {
+                // Pen down - move to new position
+                x = parseNum(p);
+                y = parseNum(p);
+                currX = x;
+                currY = y;
+            } else if (strcmp(cmd, "SC") == 0) {
+                // Scale command - user unit scaling
+                // Parse SC x1,y1,x2,y2
+                float x1 = parseNum(p);
+                float y1 = parseNum(p);
+                float x2 = parseNum(p);
+                float y2 = parseNum(p);
+                
+                _scX1 = x1;
+                _scY1 = y1;
+                _scX2 = x2;
+                _scY2 = y2;
+                _scSet = true;
+            } else if (strcmp(cmd, "IP") == 0) {
+                // Input point command
+                // Parse IP x1,y1,x2,y2
+                float x1 = parseNum(p);
+                float y1 = parseNum(p);
+                float x2 = parseNum(p);
+                float y2 = parseNum(p);
+                
+                _ipW = x2 - x1;
+                _ipH = y2 - y1;
+            }
+            
+            // Update bounding box
+            if (currX < bbox.minX) bbox.minX = currX;
+            if (currX > bbox.maxX) bbox.maxX = currX;
+            if (currY < bbox.minY) bbox.minY = currY;
+            if (currY > bbox.maxY) bbox.maxY = currY;
+            
+            // Set valid flag if we have valid bounds
+            if (bbox.maxX >= bbox.minX && bbox.maxY >= bbox.minY) {
+                bbox.valid = true;
+            }
+        }
+        
+        // Skip to next command (until semicolon or newline)
+        while (p < end && *p != ';' && *p != '\n' && *p != '\r') p++;
+        if (p < end && *p == ';') p++;  // Skip semicolon
+    }
+    
+    return bbox;
+}
+
 bool HPGLParser::parseLine(const char* line) {
     while (*line == ' ') line++;
     if (!*line || *line == ';' || *line == '(' || *line == '\n' || *line == '\r')

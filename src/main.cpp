@@ -465,17 +465,59 @@ void startCut() {
 
 // ─── Mode Transform helpers ──────────────────────────────────
 
-// Scan PSRAM buffer for min/max X,Y in G0/G1 moves
+// Scan PSRAM buffer for min/max X,Y in G0/G1 moves (G-code) or PA/PR/PD/PU moves (HPGL)
 static void scanBoundingBox() {
-    modeXform.bbMinX = 1e10f; modeXform.bbMinY = 1e10f;
-    modeXform.bbMaxX = -1e10f; modeXform.bbMaxY = -1e10f;
+    // First try to detect if this is an HPGL file by checking for HPGL command prefixes
+    bool isHPGL = false;
     size_t end = psramBuf.size();
     size_t off = 0;
     char line[GCODE_LINE_MAX];
-    while (off < end) {
+    
+    // Look for HPGL command pattern (two letters followed by optional space)
+    while (off < end && off < 200) {  // Check first 200 bytes only
         int i = 0;
         while (off < end && i < GCODE_LINE_MAX - 1) {
             char c = (char)psramBuf.at(off++);
+            if (c == '\n') break;
+            if (c == '\r') continue;
+            line[i++] = c;
+        }
+        line[i] = '\0';
+        const char* p = line;
+        while (*p == ' ') p++;
+        
+        // Check if it looks like an HPGL command (e.g., "IN", "PA", "PR", etc.)
+        if (strlen(p) >= 2 && isalpha(p[0]) && isalpha(p[1])) {
+            isHPGL = true;
+            break;
+        }
+    }
+    
+    if (isHPGL) {
+        // Handle HPGL file
+        HPGLParser::HPGLBBox hb = hpgl.hpglScanBBox(psramBuf.data(), psramBuf.size());
+        if (hb.valid) {
+            modeXform.bbMinX = hb.minX;
+            modeXform.bbMaxX = hb.maxX;
+            modeXform.bbMinY = hb.minY;
+            modeXform.bbMaxY = hb.maxY;
+            modeXform.bbValid = true;
+            Serial.printf("// HPGL bbox: %.1f-%.1f X  %.1f-%.1f Y\n",
+                          modeXform.bbMinX, modeXform.bbMaxX,
+                          modeXform.bbMinY, modeXform.bbMaxY);
+            return;
+        }
+    }
+    
+    // Fallback to G-code scanning
+    modeXform.bbMinX = 1e10f; modeXform.bbMinY = 1e10f;
+    modeXform.bbMaxX = -1e10f; modeXform.bbMaxY = -1e10f;
+    size_t file_end = psramBuf.size();
+    size_t file_off = 0;
+    while (file_off < file_end) {
+        int i = 0;
+        while (file_off < file_end && i < GCODE_LINE_MAX - 1) {
+            char c = (char)psramBuf.at(file_off++);
             if (c == '\n') break;
             if (c == '\r') continue;
             line[i++] = c;
@@ -611,7 +653,13 @@ static void applyMoveTransform(float &x, float &y) {
         y *= modeXform.scaleY;
     }
 
-    // 4. Center Point offset
+    // 4. Size dial scaling
+    // Convert inches to mm (25.4 mm/inch) and scale
+    float sizeScale = plotter.sizeInches * 25.4f / 25.4f;  // Normalize to 1.0 for 1 inch
+    x *= sizeScale;
+    y *= sizeScale;
+
+    // 5. Center Point offset
     if (plotter.funcs.centerPoint) {
         x += modeXform.centerOffX;
         y += modeXform.centerOffY;
@@ -1088,20 +1136,42 @@ void handlePlotterKey(int key) {
 
         // ── Paper / Mat handling ──
         case KEY_LOADMAT:
-            Serial.println("// load mat");
+            if (state == IDLE) {
+                stepper.homeX();
+                stepper.setTarget(0, 0, plotter.currentFeed);
+                plotter.bladeX = 0;
+                plotter.bladeY = 0;
+                beep(BEEP_FREQ, BEEP_SHORT_MS);
+                display.showMessage("Mat loaded");
+            }
             break;
         case KEY_UNLOADMAT:
-            Serial.println("// unload mat");
+            if (state == IDLE) {
+                stepper.setTarget(X_MAX_MM / 2, 0, plotter.currentFeed);
+                beep(BEEP_FREQ, BEEP_SHORT_MS);
+                display.showMessage("Remove mat");
+            }
             break;
         case KEY_MATSIZE:
             plotter.matSize = (plotter.matSize == MAT_12X12) ? MAT_12X24 : MAT_12X12;
             Serial.printf("// mat size: %s\n", MAT_LABELS[plotter.matSize]);
             break;
         case KEY_SETCUTAREA:
-            Serial.println("// set cut area");
+            plotter.cutAreaX = plotter.bladeX;
+            plotter.cutAreaY = plotter.bladeY;
+            beep(BEEP_FREQ, BEEP_SHORT_MS);
+            display.showMessage("Cut area set");
             break;
         case KEY_LOADLAST:
-            // Re-plot last file
+            if (currentFilePath[0] && (usbDrive.isReady() || psramBuf.isReady())) {
+                if (usbDrive.isReady()) {
+                    usbDrive.loadFile(currentFilePath, psramBuf);
+                }
+                startCut();
+            } else {
+                display.showMessage("No last file");
+                beep(BEEP_FREQ_ERR, BEEP_SHORT_MS);
+            }
             break;
 
         // ── Mode keys ──
@@ -1454,6 +1524,7 @@ void setup() {
     cb.onReport = onReport;
     cb.onDwell = onDwell;
     cb.onFile = onFile;
+    cb.onPause = [](){ state.store(PAUSED); beep(BEEP_FREQ, BEEP_SHORT_MS); };
     cb.onError = onError;
     parser.begin(cb);
 

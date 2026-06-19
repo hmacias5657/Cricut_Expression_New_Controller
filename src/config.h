@@ -117,7 +117,7 @@
 #define KBD_CLK         33    // shift register clock
 #define KBD_DATA        25    // shift register data
 #define KBD_LED_EN      -1    // -1 = not connected (LEDs stay off)
-#define KBD_STOP        -1    // -1 = stop button not used
+#define KBD_STOP        37    // GPIO for STOP button (not in keyboard matrix)
 #define KBD_ROW0        36    // ADC1 input-only, row 0 (top)
 #define KBD_ROW1        39    // ADC1 input-only, row 1
 #define KBD_ROW2        22    // shares BTN_SELECT

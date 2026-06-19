@@ -164,6 +164,7 @@ bool GCodeParser::parseLine(const char* line) {
         case 1: // optional stop
         case 2: // program end
             _x = _y = 0;
+            if (_cb.onPause) _cb.onPause();
             return true;
 
         case 3: // solenoid on (spindle CW)
