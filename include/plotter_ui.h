@@ -146,4 +146,8 @@ struct PlotterState {
     // Blade position (mm)
     float           bladeX{0};
     float           bladeY{0};
+    
+    // Cut area (mm)
+    float           cutAreaX{0};
+    float           cutAreaY{0};
 };

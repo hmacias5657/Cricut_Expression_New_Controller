@@ -12,6 +12,7 @@ public:
     using ReportCmd = std::function<void()>;
     using DwellCmd = std::function<void(unsigned long ms)>;
     using FileCmd = std::function<void(const char* filename)>;
+    using PauseCmd = std::function<void()>;
     using ErrorCb = std::function<void(const char* msg)>;
 
     struct Callbacks {
@@ -22,6 +23,7 @@ public:
         ReportCmd onReport;
         DwellCmd onDwell;
         FileCmd onFile;
+        PauseCmd onPause;
         ErrorCb onError;
     };
 
